@@ -73,7 +73,8 @@ npm run build
 ```
 
 Set `PLAYWRIGHT_PROJECT_ROOT` to use the demo with another Playwright repository.
-The default demo path is `../demo_workspace_platform/web-app`.
+The default demo path is `../demo_workspace_platform/web-app`. When that directory is not
+present, the graph demo still starts in static mode and the Run button stays disconnected.
 
 ## License
 

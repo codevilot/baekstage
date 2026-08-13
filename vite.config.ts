@@ -1,12 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { baekstagePlugin } from "./src/vite/scenario-plugin";
 
+const playwrightRoot = path.resolve(process.env.PLAYWRIGHT_PROJECT_ROOT ?? "../demo_workspace_platform/web-app");
+
 export default defineConfig({
-  plugins: [react(), baekstagePlugin({
-    projectRoot: path.resolve(process.env.PLAYWRIGHT_PROJECT_ROOT ?? "../demo_workspace_platform/web-app"),
-  })],
+  plugins: [react(), ...(existsSync(playwrightRoot) ? [baekstagePlugin({ projectRoot: playwrightRoot })] : [])],
   server: {
     host: "127.0.0.1",
     port: 4173,
