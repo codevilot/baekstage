@@ -1,0 +1,33 @@
+# Publishing
+
+## Release checklist
+
+1. Update `version` using semantic versioning.
+2. Run `npm test` and `npm run build`.
+3. Inspect package contents with `npm pack --dry-run`.
+4. Test the tarball in a clean consumer project.
+5. Sign in with `npm login` and confirm the intended owner or organization.
+6. Publish with `npm publish`.
+
+`prepack` automatically runs unit tests and rebuilds the library entries.
+
+## Public entries
+
+```ts
+import { ScenarioViewer } from "baekstage";
+import "baekstage/style.css";
+import { markScreenshot } from "baekstage/playwright";
+import { baekstagePlugin } from "baekstage/vite";
+```
+
+The root entry is browser-facing. The Playwright entry is framework-neutral. The Vite
+entry uses Node APIs and must only be imported by Vite configuration or server code.
+
+## Versioning policy
+
+- Patch: fixes with no public type or behavior change.
+- Minor: backward-compatible options, artifact fields, or viewer features.
+- Major: schema, endpoint, entry point, or minimum runtime changes.
+
+The `0.x` line should be treated as public beta until runner authentication, artifact
+retention, broader browser tests, and a stable trace deep-link contract are complete.

@@ -1,0 +1,10 @@
+node_modules/
+.scenario-results/
+dist/
+dist-lib/
+dist-types/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+vite.lib.config.js
+vite.lib.config.d.ts
