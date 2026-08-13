@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+if [ -n "${PGPASSFILE:-}" ]; then
+  exec docker run --rm -i --network host \
+    -v "$PWD:$PWD" -w "$PWD" -v "$PGPASSFILE:$PGPASSFILE:ro" \
+    -e PGHOST -e PGHOSTADDR -e PGPORT -e PGUSER -e PGDATABASE \
+    -e PGPASSFILE -e PGCONNECT_TIMEOUT -e PGSSLMODE \
+    postgres:16-alpine psql "$@"
+fi
+exec docker run --rm --network host postgres:16-alpine psql "$@"
