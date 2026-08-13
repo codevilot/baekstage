@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { defineConfig } from "../config";
 import { markElementScreenshot, readScreenshotMark, screenshotMarkName } from "../playwright/mark-screenshot";
 import { artifactMatchesEdge, screenshotsForNode } from "./artifacts";
 import { defineScenario, filterScenario, mergeResult } from "./scenario";
@@ -74,5 +76,15 @@ describe("scenario graph", () => {
 
   it("rejects edges to unknown nodes", () => {
     expect(() => defineScenario({ id: "bad", title: "Bad", nodes: [], edges: [{ id: "x", source: "missing", target: "also-missing" }] })).toThrow("Unknown edge source");
+  });
+
+  it("keeps the standalone config typed without changing its value", () => {
+    const config = { suite: { name: "Smoke", scenarios: [graph] }, server: { port: 4173 } };
+    expect(defineConfig(config)).toBe(config);
+  });
+
+  it("scopes every published stylesheet to Baekstage", async () => {
+    const files = ["src/styles.css", "src/galaxy.css", "src/viewer/status.css", "src/viewer/overview/overview-panel.css"];
+    for (const file of files) expect(await readFile(file, "utf8")).toMatch(/^@scope \(\.baekstage-root, \.baekstage-portal\)/);
   });
 });

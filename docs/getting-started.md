@@ -9,6 +9,12 @@
 Playwright and Vite are optional. They are needed only for screenshot marking and the
 development runner respectively.
 
+## Standalone workspace
+
+The recommended first experience is the CLI. Create `baekstage.config.ts` using
+`defineConfig`, then run `npx baekstage --open`. See the [CLI reference](cli.md) for
+configuration and options.
+
 ## Define a scenario
 
 ```ts

@@ -70,7 +70,7 @@ export function ScenarioViewer({ suite, options }: { suite: ScenarioSuite; optio
   const selectScreenshots = (items: ScenarioArtifact[]) => { setAllScreenshotsOpen(false); setEdgeScreenshots(items); };
   const closePanels = () => { setSuiteOpen(false); setEdgeScreenshots([]); setAllScreenshotsOpen(false); setSelectedScenarioId(null); };
 
-  return <main>
+  return <main className="baekstage-root">
     <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1><p>{selectedScenario?.description ?? "Network에서 시나리오를 선택해 연결된 test step을 확인하세요."}</p></div></header>
     <div className="overview-workspace">
       <SuiteGalaxy suite={groupedSuite} selectedScenarioId={selectedScenarioId ?? undefined} maxDetailDepth={maxDetailDepth} detailStatus={detailStatus} screenshots={screenshots} activeScreenshots={edgeScreenshots} onScreenshotsSelect={selectScreenshots} onSuiteSelect={() => { setSelectedScenarioId(null); setSuiteOpen(true); }} onScenarioSelect={selectScenario} onBackgroundClick={closePanels}/>

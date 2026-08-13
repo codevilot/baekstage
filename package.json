@@ -1,6 +1,6 @@
 {
   "name": "baekstage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Visualize, run, and review branching Playwright scenarios as an interactive graph.",
   "license": "MIT",
   "keywords": ["playwright", "testing", "scenario", "graph", "visualization", "react"],
@@ -16,12 +16,17 @@
       "types": "./dist-types/playwright/index.d.ts",
       "import": "./dist-lib/playwright.js"
     },
+    "./config": {
+      "types": "./dist-types/config.d.ts",
+      "import": "./dist-lib/config.js"
+    },
     "./vite": {
       "types": "./dist-types/vite/scenario-plugin.d.ts",
       "import": "./dist-lib/vite.js"
     },
     "./style.css": "./dist-lib/baekstage.css"
   },
+  "bin": { "baekstage": "./dist-lib/cli.js" },
   "sideEffects": ["**/*.css"],
   "files": [
     "dist-lib",
@@ -38,6 +43,7 @@
     "clean:lib": "node scripts/build/clean.mjs",
     "build:lib": "npm run clean:lib && vite build --config vite.lib.config.ts && tsc --project tsconfig.lib.json",
     "test": "vitest run",
+    "test:cli": "node scripts/test/cli-smoke.mjs",
     "prepack": "npm test && npm run build:lib"
   },
   "dependencies": {
@@ -50,7 +56,7 @@
     "vite": ">=6 <9"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": true }
+    "vite": { "optional": false }
   },
   "engines": { "node": ">=20" },
   "publishConfig": { "access": "public", "provenance": true },

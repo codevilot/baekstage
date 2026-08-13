@@ -29,6 +29,11 @@ does not bundle Playwright into Baekstage.
 - `baekstagePlugin(options)`: trusted-development Vite adapter.
 - `BaekstagePluginOptions`: runner and route configuration.
 
+## Config entry: `baekstage/config`
+
+- `defineConfig(config)`: typed identity helper for `baekstage.config.ts`.
+- `BaekstageConfig`: suite, Playwright runner, results, and standalone server options.
+
 ## Viewer options
 
 ```ts
