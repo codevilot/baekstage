@@ -7,6 +7,6 @@
     "noEmit": false,
     "outDir": "dist-types"
   },
-  "include": ["src/index.ts", "src/core/**/*.ts", "src/playwright/**/*.ts", "src/viewer/**/*.tsx", "src/vite/**/*.ts"],
+  "include": ["src/index.ts", "src/cli.ts", "src/config.ts", "src/core/**/*.ts", "src/playwright/**/*.ts", "src/viewer/**/*.tsx", "src/vite/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

@@ -3,7 +3,7 @@
 ## Release checklist
 
 1. Update `version` using semantic versioning.
-2. Run `npm test` and `npm run build`.
+2. Run `npm test`, `npm run build`, and `npm run test:cli`.
 3. Inspect package contents with `npm pack --dry-run`.
 4. Test the tarball in a clean consumer project.
 5. Sign in with `npm login` and confirm the intended owner or organization.
@@ -18,10 +18,12 @@ import { ScenarioViewer } from "baekstage";
 import "baekstage/style.css";
 import { markScreenshot } from "baekstage/playwright";
 import { baekstagePlugin } from "baekstage/vite";
+import { defineConfig } from "baekstage/config";
 ```
 
 The root entry is browser-facing. The Playwright entry is framework-neutral. The Vite
 entry uses Node APIs and must only be imported by Vite configuration or server code.
+The package also exposes the `baekstage` executable for `npx baekstage`.
 
 ## Versioning policy
 

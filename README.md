@@ -1,21 +1,23 @@
 # Baekstage
 
-Branching Playwright journeys become an interactive graph with runnable scenarios,
-node-scoped screenshots, failure paths, and Playwright Trace snapshots.
+Baekstage turns branching Playwright journeys into an interactive graph. Run it as a
+standalone test workspace or embed the same viewer in an existing React application.
 
-## Install
+## Quick start
 
 ```bash
-npm install baekstage
+npm install --save-dev baekstage
 ```
 
-```tsx
-import { ScenarioViewer, defineSuite } from "baekstage";
-import "baekstage/style.css";
+Create `baekstage.config.ts` in the project root:
 
-export function TestsPage() {
-  return <ScenarioViewer suite={defineSuite({
-    name: "Checkout",
+```ts
+import { defineConfig } from "baekstage/config";
+import { defineSuite } from "baekstage";
+
+export default defineConfig({
+  suite: defineSuite({
+    name: "Checkout tests",
     scenarios: [{
       id: "card-payment",
       title: "Card payment",
@@ -27,54 +29,89 @@ export function TestsPage() {
       ],
       edges: [{ id: "checkout", source: "cart", target: "paid" }],
     }],
-  })}/>;
-}
-```
-
-React 18.3+ and React 19 are supported. Next.js App Router consumers must render
-`ScenarioViewer` from a `"use client"` component.
-
-## Optional test runner
-
-The viewer is static by default. Add the optional Vite adapter to execute scenarios,
-collect marked screenshots, and serve Playwright Trace Viewer locally.
-
-```ts
-// vite.config.ts
-import { defineConfig } from "vite";
-import { baekstagePlugin } from "baekstage/vite";
-
-export default defineConfig({
-  plugins: [baekstagePlugin({
-    projectRoot: "./",
-    resultRoot: ".scenario-results",
-  })],
+  }),
+  playwright: { projectRoot: "." },
 });
 ```
 
-The runner is intended for trusted development environments. Do not expose its POST
-endpoint to the public internet without authentication and command isolation.
+Start the workspace:
+
+```bash
+npx baekstage --open
+```
+
+Baekstage opens at `http://127.0.0.1:4173`. Select a scenario to run Playwright and
+review its node-scoped screenshots and Trace snapshots.
+
+To use `npm run baekstage`, add an ordinary project script:
+
+```json
+{ "scripts": { "baekstage": "baekstage --open" } }
+```
+
+## CLI
+
+```text
+npx baekstage [options]
+
+-c, --config <file>  Config file
+-h, --host <host>    Host (default: 127.0.0.1)
+-p, --port <port>    Port (default: 4173)
+    --open            Open the browser
+    --no-open         Do not open the browser
+    --help            Show help
+```
+
+Config discovery supports `baekstage.config.ts`, `.mts`, `.js`, `.mjs`, and `.json`.
+Results are stored in `.baekstage/results` unless configured otherwise.
+
+## Embed in React or Next.js
+
+```tsx
+"use client";
+
+import { ScenarioViewer } from "baekstage";
+import "baekstage/style.css";
+
+export function TestGraphPage() {
+  return <ScenarioViewer suite={suite}/>;
+}
+```
+
+Baekstage styles are scoped to `.baekstage-root` and its portal, so importing the CSS
+does not restyle the host application's `main`, `header`, buttons, or sidebars.
+
+## Mark Playwright screenshots
+
+```ts
+import { markElementScreenshot } from "baekstage/playwright";
+
+await markElementScreenshot(page.getByTestId("kpi"), testInfo, {
+  scenarioId: "sampling-review",
+  nodeId: "kpi-after",
+  label: "KPI after review",
+  target: "[data-testid=kpi]",
+  checkpoint: true,
+});
+```
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md)
+- [Getting started and configuration](docs/getting-started.md)
+- [CLI reference](docs/cli.md)
 - [Playwright screenshots and node IDs](docs/playwright-integration.md)
-- [Runner configuration and HTTP contract](docs/runner.md)
-- [Public API reference](docs/api.md)
-- [Package publishing](docs/publishing.md)
+- [Runner and HTTP contract](docs/runner.md)
+- [Public API](docs/api.md)
+- [Publishing](docs/publishing.md)
 
 ## Development
 
 ```bash
 npm install
-npm run dev
 npm test
 npm run build
+npm pack --dry-run
 ```
-
-Set `PLAYWRIGHT_PROJECT_ROOT` to use the demo with another Playwright repository.
-The default demo path is `../data_foundry_platform/tdp-web`. When that directory is not
-present, the graph demo still starts in static mode and the Run button stays disconnected.
 
 ## License
 

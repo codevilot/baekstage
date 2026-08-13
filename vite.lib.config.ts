@@ -8,6 +8,8 @@ export default defineConfig({
     lib: {
       entry: {
         index: "src/index.ts",
+        cli: "src/cli.ts",
+        config: "src/config.ts",
         playwright: "src/playwright/index.ts",
         vite: "src/vite/scenario-plugin.ts",
       },

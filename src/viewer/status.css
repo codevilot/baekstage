@@ -1,3 +1,4 @@
+@scope (.baekstage-root, .baekstage-portal) {
 .graph-node { position: relative; }
 .graph-node.kind-fixture { border-width: 3px; background: linear-gradient(135deg,#f8fafc,#fff); }
 .graph-node.kind-fixture::before { content: "START"; position: absolute; top: -20px; left: 12px; padding: 3px 7px; border-radius: 999px; color: #fff; background: #475569; font-size: 8px; font-weight: 900; letter-spacing: .12em; }
@@ -5,3 +6,5 @@
 .graph-node.status-failed.selected { box-shadow: 0 0 0 4px rgb(228 41 57 / 18%),0 8px 20px rgb(228 41 57 / 16%); }
 .node-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .node-meta span { padding: 3px 6px; border-radius: 999px; color: #fff; background: #e42939; font-size: 7px; font-weight: 900; letter-spacing: .08em; }
+
+}
