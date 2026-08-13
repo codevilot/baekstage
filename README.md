@@ -73,7 +73,8 @@ npm run build
 ```
 
 Set `PLAYWRIGHT_PROJECT_ROOT` to use the demo with another Playwright repository.
-The default demo path is `../data_foundry_platform/tdp-web`.
+The default demo path is `../data_foundry_platform/tdp-web`. When that directory is not
+present, the graph demo still starts in static mode and the Run button stays disconnected.
 
 ## License
 
