@@ -15,7 +15,7 @@ export type ScreenshotMark = {
 
 type PageLike = { screenshot(options?: { fullPage?: boolean }): Promise<Uint8Array> };
 type LocatorLike = { screenshot(): Promise<Uint8Array> };
-type TestInfoLike = { attach(name: string, options: { body: Uint8Array; contentType: string }): Promise<void> };
+type TestInfoLike = { attach(name: string, options: { body: any; contentType: string }): Promise<void> };
 
 export const SCREENSHOT_MARK_PREFIX = "scenario-graph:";
 
