@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Add Storybook-style `webServer` lifecycle management to Baekstage config.
+- Reuse healthy app servers and stop app processes started by the Baekstage CLI.
+- Discover short `baekstage.js`, `baekstage.mjs`, and `baekstage.json` config names.
+- Preserve app startup output so configuration failures are actionable.
+
 ## 0.3.0
 
 - Connect OpenAPI operations, response branches, API cases, and assertions to Scenario nodes.

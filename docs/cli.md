@@ -26,6 +26,12 @@ export default defineConfig({
     commandArgs: ["exec", "--", "playwright", "test"],
     env: { CI: "1" },
   },
+  webServer: {
+    command: "npm run dev",
+    url: "http://127.0.0.1:3000",
+    reuseExistingServer: true,
+    timeoutMs: 120_000,
+  },
   results: ".baekstage/results",
   server: {
     host: "127.0.0.1",
@@ -39,6 +45,28 @@ export default defineConfig({
 viewer. Relative paths are resolved from the directory where Baekstage is executed.
 
 CLI host, port, and open flags override values in the config file.
+
+`webServer` lets the CLI own the application server without a `.env` file. Baekstage
+reuses a healthy server by default, otherwise starts `command`, waits for `url`, and
+stops the process when Baekstage exits. `cwd` is relative to the directory where the
+CLI is run. Command output is preserved when startup fails.
+
+Use this as the single owner of the application process. Remove `webServer` from the
+Playwright config used by Baekstage so Playwright does not try to start the same app a
+second time. No environment-variable handshake is required.
+
+Config discovery supports both Storybook-style config names and short names:
+
+```text
+baekstage.config.ts
+baekstage.config.js
+baekstage.config.json
+baekstage.js
+baekstage.json
+```
+
+JavaScript config can import and compose a suite. JSON config contains the same object
+shape directly. Neither format requires `.env`.
 
 ## Package scripts
 

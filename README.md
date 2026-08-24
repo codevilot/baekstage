@@ -50,6 +50,11 @@ export default defineConfig({
     }],
   }),
   playwright: { projectRoot: "." },
+  webServer: {
+    command: "npm run dev",
+    url: "http://127.0.0.1:3000",
+    reuseExistingServer: true,
+  },
 });
 ```
 
@@ -61,6 +66,9 @@ npx baekstage --open
 
 Baekstage opens at `http://127.0.0.1:4173`. Select a scenario to run Playwright and
 review its node-scoped screenshots and Trace snapshots.
+The optional `webServer` setting starts the app when needed, reuses an existing
+healthy process, and stops processes started by Baekstage. Keep this setting in
+Baekstage rather than duplicating it in the Playwright config.
 Use **Catalog** to search registered OpenAPI operations, inspect schemas, find linked
 scenarios, and execute linked API nodes through the protected local proxy.
 Expected error cases such as `404` or `409` can pass when their configured response
@@ -86,7 +94,8 @@ npx baekstage [options]
     --help            Show help
 ```
 
-Config discovery supports `baekstage.config.ts`, `.mts`, `.js`, `.mjs`, and `.json`.
+Config discovery supports `baekstage.config.ts`, `.mts`, `.js`, `.mjs`, and `.json`,
+plus the short `baekstage.js`, `.mjs`, and `.json` names.
 Results are stored in `.baekstage/results` unless configured otherwise.
 
 Playwright network evidence is opt-in through `observeApiScenario()` or
