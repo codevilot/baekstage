@@ -20,6 +20,11 @@ import { defineConfig } from "baekstage/config";
 
 export default defineConfig({
   envFile: ".env.baekstage",
+  discovery: {
+    root: ".",
+    exclude: ["postgres-data"],
+    ignorePermissionErrors: true,
+  },
   suite,
   playwright: {
     projectRoot: "./web-app",
@@ -58,6 +63,10 @@ export default defineConfig({
 viewer. Relative paths are resolved from the directory where Baekstage is executed.
 
 CLI host, port, and open flags override values in the config file.
+
+`discovery.root` changes where recursive `*.baekstage.*` discovery starts.
+`discovery.exclude` accepts directory names or paths relative to that root, and
+`ignorePermissionErrors` skips directories that cannot be read due to permissions.
 
 `envFile` loads dotenv-style values into managed services, the app server, and the
 Playwright child only; it does not mutate the Baekstage process environment. Services

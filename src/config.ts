@@ -11,11 +11,21 @@ export type WebServerConfig = {
   timeoutMs?: number;
 };
 
+export type ScenarioDiscoveryConfig = {
+  /** Directory to search, relative to the directory where Baekstage is run. */
+  root?: string;
+  /** Directory names or root-relative directory paths to skip. */
+  exclude?: string[];
+  /** Skip directories that cannot be read because of filesystem permissions. */
+  ignorePermissionErrors?: boolean;
+};
+
 export type BaekstageConfig = {
   /** Optional dotenv file, resolved from the config working directory. */
   envFile?: string;
   /** Optional when scenarios are discovered from files ending in `.baekstage.*`. */
   suite?: ScenarioSuite;
+  discovery?: ScenarioDiscoveryConfig;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };
   playwright?: {
     projectRoot: string;

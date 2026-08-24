@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.7
+
+- Resolve React, React DOM, and Baekstage through Vite-compatible package imports in the standalone CLI.
+- Add configurable scenario discovery roots, directory exclusions, and permission-error handling.
+
 ## 0.3.1
 
 - Add Storybook-style `webServer` lifecycle management to Baekstage config.

@@ -6,13 +6,27 @@ import { defineSuite } from "./core/scenario";
 const ignoredDirectories = new Set([".baekstage", ".git", ".worktrees", "dist", "dist-lib", "node_modules", "out", "playwright-report", "test-results"]);
 const scenarioFile = /\.baekstage\.(?:ts|mts|js|mjs)$/;
 
-export async function findScenarioFiles(root: string): Promise<string[]> {
+export type ScenarioDiscoveryOptions = { exclude?: string[]; ignorePermissionErrors?: boolean };
+
+function isPermissionError(error: unknown) {
+  return error instanceof Error && "code" in error && ["EACCES", "EPERM"].includes(String(error.code));
+}
+
+export async function findScenarioFiles(root: string, options: ScenarioDiscoveryOptions = {}): Promise<string[]> {
   const found: string[] = [];
+  const excluded = new Set((options.exclude ?? []).map((item) => item.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "")));
   async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch (error) {
+      if (options.ignorePermissionErrors && isPermissionError(error)) return;
+      throw error;
+    }
     await Promise.all(entries.map(async (entry) => {
       if (entry.isDirectory()) {
-        if (!ignoredDirectories.has(entry.name) && !entry.name.startsWith(".next")) await visit(path.join(directory, entry.name));
+        const child = path.join(directory, entry.name);
+        const relative = path.relative(root, child).replaceAll("\\", "/");
+        if (!ignoredDirectories.has(entry.name) && !entry.name.startsWith(".next") && !excluded.has(entry.name) && !excluded.has(relative)) await visit(child);
       } else if (entry.isFile() && scenarioFile.test(entry.name)) found.push(path.join(directory, entry.name));
     }));
   }
@@ -32,8 +46,9 @@ export async function discoverSuite(
   root: string,
   configured: ScenarioSuite | undefined,
   load: (file: string) => Promise<unknown>,
+  options: ScenarioDiscoveryOptions = {},
 ): Promise<ScenarioSuite> {
-  const files = await findScenarioFiles(root);
+  const files = await findScenarioFiles(root, options);
   const discovered = (await Promise.all(files.map(async (file) => scenariosFromExport(await load(file), file)))).flat();
   const scenarios = [...(configured?.scenarios ?? []), ...discovered];
   if (!scenarios.length) throw new Error("No scenarios found. Create a *.baekstage.ts file or configure suite.scenarios.");

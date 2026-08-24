@@ -29,6 +29,17 @@ describe("scenario discovery", () => {
     expect(suite.scenarios.map(({ id }) => id)).toEqual(["configured", "signup"]);
   });
 
+  it("supports custom excluded directory names and root-relative paths", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    await mkdir(path.join(root, "apps", "ignored"), { recursive: true });
+    await mkdir(path.join(root, "private"));
+    await mkdir(path.join(root, "included"));
+    await writeFile(path.join(root, "apps", "ignored", "app.baekstage.ts"), "export default {}");
+    await writeFile(path.join(root, "private", "private.baekstage.ts"), "export default {}");
+    await writeFile(path.join(root, "included", "included.baekstage.ts"), "export default {}");
+    expect((await findScenarioFiles(root, { exclude: ["apps/ignored", "private"] })).map((file) => path.relative(root, file))).toEqual(["included/included.baekstage.ts"]);
+  });
+
   it("rejects duplicate scenario ids", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
     await writeFile(path.join(root, "duplicate.baekstage.ts"), "export default {}");

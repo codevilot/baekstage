@@ -57,6 +57,15 @@ export default defineScenario({
 
 The `suite` entry is optional; its name then defaults to the project directory.
 Configured and discovered scenarios are combined, and duplicate IDs fail at startup.
+Discovery can be scoped when the project contains large or inaccessible directories:
+
+```ts
+discovery: {
+  root: "./e2e",
+  exclude: ["fixtures", "generated/scenarios"],
+  ignorePermissionErrors: true,
+},
+```
 
 Start the workspace:
 
