@@ -1,10 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { connect } from "node:net";
 import path from "node:path";
 import type { WebServerConfig } from "./config";
 
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function reachable(url: string) {
+  if (url.startsWith("tcp://")) return new Promise<boolean>((resolve) => {
+    const target = new URL(url); const socket = connect(Number(target.port), target.hostname);
+    const done = (value: boolean) => { socket.destroy(); resolve(value); };
+    socket.setTimeout(1_000); socket.once("connect", () => done(true)); socket.once("error", () => done(false)); socket.once("timeout", () => done(false));
+  });
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
     return response.status < 500;
@@ -29,7 +35,7 @@ export async function startConfiguredWebServer(config: WebServerConfig | undefin
   let parsed: URL;
   try { parsed = new URL(config.url); }
   catch { throw new Error(`webServer.url is invalid: ${config.url}`); }
-  if (!(["http:", "https:"] as string[]).includes(parsed.protocol)) throw new Error("webServer.url must use http or https");
+  if (!(["http:", "https:", "tcp:"] as string[]).includes(parsed.protocol)) throw new Error("webServer.url must use http, https, or tcp");
 
   if (await reachable(config.url)) {
     if (config.reuseExistingServer ?? true) return { reused: true, stop: async () => {} };
