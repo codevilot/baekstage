@@ -6,7 +6,7 @@ import path from "node:path";
 const root = await mkdtemp(path.join(tmpdir(), "baekstage-cli-test-"));
 const port = 43179;
 const config = { suite: { name: "CLI smoke", scenarios: [{ id: "smoke", title: "Smoke", nodes: [{ id: "start", title: "Start", kind: "fixture" }], edges: [] }] } };
-await writeFile(path.join(root, "baekstage.config.json"), JSON.stringify(config));
+await writeFile(path.join(root, "baekstage.json"), JSON.stringify(config));
 const child = spawn(process.execPath, [path.resolve("dist-lib/cli.js"), "--port", String(port), "--no-open"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 let output = "";
 child.stdout.on("data", (chunk) => { output += chunk; });

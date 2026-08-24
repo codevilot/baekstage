@@ -10,9 +10,10 @@ import type { BaekstageConfig } from "./config";
 import { baekstagePlugin } from "./vite/scenario-plugin";
 import { loadOpenApiSources } from "./openapi/loader";
 import { validateResponseEdges } from "./core/api-response";
+import { startConfiguredWebServer } from "./cli-web-server";
 
 type Args = { config?: string; host?: string; port?: number; open?: boolean; help?: boolean };
-const candidates = ["baekstage.config.ts", "baekstage.config.mts", "baekstage.config.js", "baekstage.config.mjs", "baekstage.config.json"];
+const candidates = ["baekstage.config.ts", "baekstage.config.mts", "baekstage.config.js", "baekstage.config.mjs", "baekstage.config.json", "baekstage.js", "baekstage.mjs", "baekstage.json"];
 
 function usage() {
   return `Baekstage\n\nUsage: npx baekstage [options]\n\nOptions:\n  -c, --config <file>  Config file (default: baekstage.config.*)\n  -h, --host <host>    Host (default: 127.0.0.1)\n  -p, --port <port>    Port (default: 4173)\n      --open           Open the browser\n      --no-open        Do not open the browser\n      --help           Show this help\n`;
@@ -77,14 +78,23 @@ async function start() {
   const responseWarnings = config.suite.scenarios.flatMap((scenario) => validateResponseEdges(scenario, catalog.operations).map((message) => ({ sourceId: scenario.id, message })));
   if (config.validation?.strictOpenApiResponses && responseWarnings.length) throw new Error(responseWarnings.map((item) => item.message).join("\n"));
   catalog.errors?.push(...responseWarnings);
-  const root = await standaloneRoot(config); const plugins = [];
+  const appServer = await startConfiguredWebServer(config.webServer, cwd);
+  if (config.webServer) process.stdout.write(`\n  App server ${appServer.reused ? "reused" : "ready"} at ${config.webServer.url}\n`);
+  let root: string | undefined;
+  try {
+  root = await standaloneRoot(config); const plugins = [];
   if (config.playwright?.projectRoot || config.sources?.openapi?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; plugins.push(baekstagePlugin({ projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: config.playwright?.env, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite })); }
   plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations" } })}` : null; } });
   const server = await createServer({ root, configFile: false, appType: "spa", plugins, server: { host, port, strictPort: true } });
   await server.listen(); const url = `http://${host}:${port}`; process.stdout.write(`\n  Baekstage ready at ${url}\n  Config: ${path.relative(cwd, file)}\n\n`);
   if (args.open ?? config.server?.open) openBrowser(url);
-  const stop = async () => { await server.close(); await rm(root, { recursive: true }); process.exit(0); };
+  const stop = async () => { await server.close(); await appServer.stop(); await rm(root!, { recursive: true }); process.exit(0); };
   process.once("SIGINT", stop); process.once("SIGTERM", stop);
+  } catch (error) {
+    await appServer.stop();
+    if (root) await rm(root, { recursive: true });
+    throw error;
+  }
 }
 
 start().catch((error) => { process.stderr.write(`Baekstage: ${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); });
