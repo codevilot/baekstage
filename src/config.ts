@@ -12,6 +12,8 @@ export type WebServerConfig = {
 };
 
 export type BaekstageConfig = {
+  /** Optional dotenv file, resolved from the config working directory. */
+  envFile?: string;
   /** Optional when scenarios are discovered from files ending in `.baekstage.*`. */
   suite?: ScenarioSuite;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };
@@ -22,6 +24,8 @@ export type BaekstageConfig = {
     env?: Record<string, string>;
   };
   webServer?: WebServerConfig;
+  /** Ordered, locally managed dependencies such as a database or API. */
+  services?: Record<string, WebServerConfig>;
   results?: string | { root: string; maxRunsPerNode?: number };
   api?: { timeoutMs?: number; maxResponseBytes?: number };
   security?: { redactKeys?: string[] };

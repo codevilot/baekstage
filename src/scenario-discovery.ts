@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ScenarioGraph, ScenarioSuite } from "./core/types";
 import { defineSuite } from "./core/scenario";
 
-const ignoredDirectories = new Set([".baekstage", ".git", "dist", "dist-lib", "node_modules", "test-results"]);
+const ignoredDirectories = new Set([".baekstage", ".git", ".worktrees", "dist", "dist-lib", "node_modules", "out", "playwright-report", "test-results"]);
 const scenarioFile = /\.baekstage\.(?:ts|mts|js|mjs)$/;
 
 export async function findScenarioFiles(root: string): Promise<string[]> {
@@ -12,7 +12,7 @@ export async function findScenarioFiles(root: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     await Promise.all(entries.map(async (entry) => {
       if (entry.isDirectory()) {
-        if (!ignoredDirectories.has(entry.name)) await visit(path.join(directory, entry.name));
+        if (!ignoredDirectories.has(entry.name) && !entry.name.startsWith(".next")) await visit(path.join(directory, entry.name));
       } else if (entry.isFile() && scenarioFile.test(entry.name)) found.push(path.join(directory, entry.name));
     }));
   }

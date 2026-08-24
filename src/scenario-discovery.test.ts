@@ -13,10 +13,12 @@ describe("scenario discovery", () => {
 
   it("finds baekstage files recursively and ignores generated directories", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
-    await mkdir(path.join(root, "e2e")); await mkdir(path.join(root, "node_modules"));
+    await mkdir(path.join(root, "e2e")); await mkdir(path.join(root, "node_modules")); await mkdir(path.join(root, ".next-baekstage")); await mkdir(path.join(root, ".worktrees"));
     await writeFile(path.join(root, "e2e", "signup.baekstage.ts"), "export default {}");
     await writeFile(path.join(root, "e2e", "signup.bs.ts"), "export default {}");
     await writeFile(path.join(root, "node_modules", "hidden.baekstage.ts"), "export default {}");
+    await writeFile(path.join(root, ".next-baekstage", "generated.baekstage.ts"), "export default {}");
+    await writeFile(path.join(root, ".worktrees", "checkout.baekstage.ts"), "export default {}");
     expect((await findScenarioFiles(root)).map((file) => path.relative(root, file))).toEqual(["e2e/signup.baekstage.ts"]);
   });
 
