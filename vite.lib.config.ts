@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  publicDir: false,
   build: {
     outDir: "dist-lib",
     lib: {
@@ -12,6 +13,7 @@ export default defineConfig({
         config: "src/config.ts",
         playwright: "src/playwright/index.ts",
         vite: "src/vite/scenario-plugin.ts",
+        openapi: "src/openapi/catalog.ts",
       },
       formats: ["es"],
       fileName: (_format, entryName) => entryName === "index" ? "baekstage.js" : `${entryName}.js`,

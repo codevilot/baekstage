@@ -1,8 +1,11 @@
 node_modules/
 .scenario-results/
+.baekstage/
 dist/
 dist-lib/
 dist-types/
+test-results/
+playwright-report/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

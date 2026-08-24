@@ -15,11 +15,12 @@ function layout(graph: ScenarioGraph): DetailNode[] {
     depths.set(id, value);
     return value;
   };
+  const layers = ["ui", "api", "service", "database", "worker", "external"];
   const rows = new Map<number, number>();
   return graph.nodes.map((data) => {
     const column = depth(data.id);
-    const row = rows.get(column) ?? 0;
-    rows.set(column, row + 1);
+    const lane = data.layer ? layers.indexOf(data.layer) : -1; const row = lane >= 0 ? lane : rows.get(column) ?? 0;
+    if (lane < 0) rows.set(column, row + 1);
     return { id: data.id, type: "scenario", data, position: { x: column * 285, y: row * 150 } };
   });
 }
@@ -28,7 +29,7 @@ function graphEdges(graph: ScenarioGraph): Edge[] {
   return graph.edges.map((edge) => {
     const failed = graph.nodes.find((node) => node.id === edge.target)?.status === "failed";
     const color = failed ? "#e42939" : edge.branch ? "#f59e0b" : "#94a3b8";
-    return { ...edge, type: "smoothstep", animated: edge.label === "propagates", markerEnd: { type: MarkerType.ArrowClosed, color }, style: { stroke: color, strokeWidth: failed ? 2.5 : edge.branch ? 2 : 1.5 }, labelStyle: { fontSize: 10, fontWeight: 700, fill: "#64748b" } };
+    return { ...edge, label: edge.label ?? (edge.response ? `HTTP ${edge.response}` : undefined), type: "smoothstep", animated: edge.label === "propagates", markerEnd: { type: MarkerType.ArrowClosed, color }, style: { stroke: color, strokeWidth: failed ? 2.5 : edge.branch ? 2 : 1.5 }, labelStyle: { fontSize: 10, fontWeight: 700, fill: "#64748b" } };
   });
 }
 
