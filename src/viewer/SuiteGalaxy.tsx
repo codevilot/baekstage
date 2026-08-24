@@ -173,6 +173,13 @@ export function SuiteGalaxy({ suite, selectedScenarioId, selectedNodeId, maxDeta
     const frame = requestAnimationFrame(() => graph.zoomToFit(420, 105, (node) => node.scenarioId === selectedScenarioId));
     return () => cancelAnimationFrame(frame);
   }, [data.nodes, selectedScenarioId]);
+  useEffect(() => {
+    const graph = graphRef.current;
+    const selected = data.nodes.find((node) => node.id === selectedNetworkNodeId);
+    if (!graph || !selected || typeof selected.x !== "number" || typeof selected.y !== "number") return;
+    const frame = requestAnimationFrame(() => graph.centerAt(selected.x, selected.y, 320));
+    return () => cancelAnimationFrame(frame);
+  }, [data.nodes, selectedNetworkNodeId]);
   const activeLink = (link: NetworkLink) => {
     if (selectedScenarioId) return [endpointId(link.source), endpointId(link.target)].some((id) => id === `scenario:${selectedScenarioId}` || id.startsWith(`scenario:${selectedScenarioId}:`));
     if (activeUrls.size) return link.screenshots?.some((item) => activeUrls.has(item.url)) ?? false;
