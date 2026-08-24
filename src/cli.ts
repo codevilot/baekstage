@@ -13,7 +13,26 @@ import { startConfiguredWebServer } from "./cli-web-server";
 import { discoverSuite } from "./scenario-discovery";
 
 type Args = { config?: string; host?: string; port?: number; open?: boolean; help?: boolean };
+type Cleanup = () => void | Promise<void>;
 const candidates = ["baekstage.config.ts", "baekstage.config.mts", "baekstage.config.js", "baekstage.config.mjs", "baekstage.config.json", "baekstage.js", "baekstage.mjs", "baekstage.json"];
+const cleanups: Cleanup[] = [];
+let cleanupPromise: Promise<void> | undefined;
+
+function addCleanup(cleanup: Cleanup) { cleanups.push(cleanup); }
+
+function cleanup() {
+  cleanupPromise ??= (async () => {
+    while (cleanups.length) {
+      try { await cleanups.pop()!(); }
+      catch (error) { process.stderr.write(`Baekstage cleanup: ${error instanceof Error ? error.message : String(error)}\n`); }
+    }
+  })();
+  return cleanupPromise;
+}
+
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.once(signal, () => { void cleanup().finally(() => process.exit(exitCode)); });
+}
 
 function usage() {
   return `Baekstage\n\nUsage: npx baekstage [options]\n\nOptions:\n  -c, --config <file>  Config file (default: baekstage.config.*)\n  -h, --host <host>    Host (default: 127.0.0.1)\n  -p, --port <port>    Port (default: 4173)\n      --open           Open the browser\n      --no-open        Do not open the browser\n      --help           Show this help\n`;
@@ -91,14 +110,18 @@ async function start() {
   const responseWarnings = config.suite.scenarios.flatMap((scenario) => validateResponseEdges(scenario, catalog.operations).map((message) => ({ sourceId: scenario.id, message })));
   if (config.validation?.strictOpenApiResponses && responseWarnings.length) throw new Error(responseWarnings.map((item) => item.message).join("\n"));
   catalog.errors?.push(...responseWarnings);
-  const fileEnv = await configEnvironment(cwd, config.envFile); const managedServices: Awaited<ReturnType<typeof startConfiguredWebServer>>[] = [];
-  try { for (const [name, service] of Object.entries(config.services ?? {})) { const running = await startConfiguredWebServer({ ...service, env: { ...fileEnv, ...service.env } }, cwd); managedServices.push(running); process.stdout.write(`\n  Service ${name} ${running.reused ? "reused" : "ready"} at ${service.url}\n`); } }
-  catch (error) { for (const service of managedServices.reverse()) await service.stop(); throw error; }
+  const fileEnv = await configEnvironment(cwd, config.envFile);
+  for (const [name, service] of Object.entries(config.services ?? {})) {
+    const running = await startConfiguredWebServer({ ...service, env: { ...fileEnv, ...service.env } }, cwd);
+    addCleanup(running.stop);
+    process.stdout.write(`\n  Service ${name} ${running.reused ? "reused" : "ready"} at ${service.url}\n`);
+  }
   const appServer = await startConfiguredWebServer(config.webServer ? { ...config.webServer, env: { ...fileEnv, ...config.webServer.env } } : undefined, cwd);
+  addCleanup(appServer.stop);
   if (config.webServer) process.stdout.write(`\n  App server ${appServer.reused ? "reused" : "ready"} at ${config.webServer.url}\n`);
   let root: string | undefined;
   try {
-  root = await standaloneRoot(config, cwd); const plugins = [];
+  root = await standaloneRoot(config, cwd); addCleanup(() => rm(root!, { recursive: true, force: true })); const plugins = [];
   if (config.playwright?.projectRoot || config.sources?.openapi?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; plugins.push(baekstagePlugin({ projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...fileEnv, ...config.playwright?.env }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite })); }
   plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations" } })}` : null; } });
   const server = await createServer({
@@ -112,16 +135,13 @@ async function start() {
     },
     server: { host, port, strictPort: true },
   });
+  addCleanup(() => server.close());
   await server.listen(); const url = `http://${host}:${port}`; process.stdout.write(`\n  Baekstage ready at ${url}\n  Config: ${path.relative(cwd, file)}\n\n`);
   if (args.open ?? config.server?.open) openBrowser(url);
-  const stop = async () => { await server.close(); await appServer.stop(); for (const service of managedServices.reverse()) await service.stop(); await rm(root!, { recursive: true }); process.exit(0); };
-  process.once("SIGINT", stop); process.once("SIGTERM", stop);
   } catch (error) {
-    await appServer.stop();
-    for (const service of managedServices.reverse()) await service.stop();
-    if (root) await rm(root, { recursive: true });
+    await cleanup();
     throw error;
   }
 }
 
-start().catch((error) => { process.stderr.write(`Baekstage: ${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); });
+start().catch(async (error) => { await cleanup(); process.stderr.write(`Baekstage: ${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); });
