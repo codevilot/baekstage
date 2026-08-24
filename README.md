@@ -15,11 +15,10 @@ into one scenario graph instead of replacing those tools.
 npm install --save-dev baekstage
 ```
 
-Create `baekstage.config.ts` in the project root:
+Create `baekstage.config.ts` in the project root for shared settings:
 
 ```ts
 import { defineConfig } from "baekstage/config";
-import { defineSuite } from "baekstage";
 
 export default defineConfig({
   sources: { openapi: [{
@@ -28,27 +27,7 @@ export default defineConfig({
     file: "./openapi.yaml",
     environments: { Local: "http://localhost:8080" },
   }] },
-  suite: defineSuite({
-    name: "Checkout tests",
-    scenarios: [{
-      id: "card-payment",
-      title: "Card payment",
-      source: "e2e/card-payment.spec.ts",
-      execution: { grep: "card succeeds" },
-      nodes: [
-        { id: "cart", title: "Cart", kind: "screen" },
-        { id: "create-payment", title: "Create payment", kind: "api",
-          ref: "openapi:task-runner:POST:/payments",
-          request: { body: { method: "card" } },
-          assertions: [{ type: "status", equals: 201 }] },
-        { id: "paid", title: "Payment complete", kind: "outcome" },
-      ],
-      edges: [
-        { id: "checkout", source: "cart", target: "create-payment" },
-        { id: "paid", source: "create-payment", target: "paid" },
-      ],
-    }],
-  }),
+  suite: { name: "Checkout tests", scenarios: [] },
   playwright: { projectRoot: "." },
   webServer: {
     command: "npm run dev",
@@ -57,6 +36,27 @@ export default defineConfig({
   },
 });
 ```
+
+Scenarios are discovered recursively from `*.baekstage.ts` files by default:
+
+```ts
+// e2e/card-payment.baekstage.ts
+import { defineScenario } from "baekstage";
+
+export default defineScenario({
+  id: "card-payment",
+  title: "Card payment",
+  execution: { adapter: "playwright", source: "e2e/card-payment.spec.ts", grep: "card succeeds" },
+  nodes: [
+    { id: "cart", title: "Cart", kind: "screen" },
+    { id: "paid", title: "Payment complete", kind: "outcome" },
+  ],
+  edges: [{ id: "checkout", source: "cart", target: "paid" }],
+});
+```
+
+The `suite` entry is optional; its name then defaults to the project directory.
+Configured and discovered scenarios are combined, and duplicate IDs fail at startup.
 
 Start the workspace:
 

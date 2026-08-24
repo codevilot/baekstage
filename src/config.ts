@@ -12,7 +12,8 @@ export type WebServerConfig = {
 };
 
 export type BaekstageConfig = {
-  suite: ScenarioSuite;
+  /** Optional when scenarios are discovered from files ending in `.baekstage.*`. */
+  suite?: ScenarioSuite;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };
   playwright?: {
     projectRoot: string;

@@ -11,6 +11,7 @@ import { baekstagePlugin } from "./vite/scenario-plugin";
 import { loadOpenApiSources } from "./openapi/loader";
 import { validateResponseEdges } from "./core/api-response";
 import { startConfiguredWebServer } from "./cli-web-server";
+import { discoverSuite } from "./scenario-discovery";
 
 type Args = { config?: string; host?: string; port?: number; open?: boolean; help?: boolean };
 const candidates = ["baekstage.config.ts", "baekstage.config.mts", "baekstage.config.js", "baekstage.config.mjs", "baekstage.config.json", "baekstage.js", "baekstage.mjs", "baekstage.json"];
@@ -44,9 +45,14 @@ function configPath(cwd: string, requested?: string) {
 
 async function loadConfig(cwd: string, file: string): Promise<BaekstageConfig> {
   if (!existsSync(file)) throw new Error(`Config does not exist: ${file}`);
-  if (file.endsWith(".json")) return JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8"));
   const loader = await createServer({ root: cwd, configFile: false, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
-  try { return (await loader.ssrLoadModule(file)).default as BaekstageConfig; }
+  try {
+    const config = file.endsWith(".json")
+      ? JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8")) as BaekstageConfig
+      : (await loader.ssrLoadModule(file)).default as BaekstageConfig;
+    config.suite = await discoverSuite(cwd, config.suite, async (scenarioFile) => (await loader.ssrLoadModule(scenarioFile)).default);
+    return config;
+  }
   finally { await loader.close(); }
 }
 
@@ -72,7 +78,7 @@ async function start() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { process.stdout.write(usage()); return; }
   const cwd = process.cwd(); const file = configPath(cwd, args.config); const config = await loadConfig(cwd, file);
-  if (!config?.suite?.scenarios) throw new Error("Config must provide a ScenarioSuite as suite");
+  if (!config.suite) throw new Error("Baekstage could not create a scenario suite");
   const host = args.host ?? config.server?.host ?? "127.0.0.1"; const port = args.port ?? config.server?.port ?? 4173;
   const catalog = await loadOpenApiSources(cwd, config.sources?.openapi);
   const responseWarnings = config.suite.scenarios.flatMap((scenario) => validateResponseEdges(scenario, catalog.operations).map((message) => ({ sourceId: scenario.id, message })));
