@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import "@xyflow/react/dist/style.css";
 import type { ApiAssertion, OpenApiCatalog, OpenApiOperation, ScenarioArtifact, ScenarioSuite, ScenarioViewerOptions } from "../core/types";
 import { normalizeExecution, applyRunResult } from "../core/execution";
@@ -16,6 +16,7 @@ import { ScenarioNodePanel } from "./overview/ScenarioNodePanel";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { useApiRun } from "../hooks/api/use-api-run";
 import { normalizeApiCases } from "../core/api-cases";
+import { useSuiteRun, type SuiteRunPolicy } from "../hooks/scenario/use-suite-run";
 
 function scenarioName(title: string) {
   return title.replace(/^\d+\.\s*/, "");
@@ -70,6 +71,7 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const [detailStatus, setDetailStatus] = useState<"all" | "failed">("all");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(252);
+  const [suiteRunPolicy, setSuiteRunPolicy] = useState<SuiteRunPolicy>("missing");
   const selectedScenario = groupedSuite.scenarios.find((scenario) => scenario.id === selectedScenarioId);
   const selectedExecution = selectedScenario ? normalizeExecution(selectedScenario) : undefined;
   const run = useScenarioRun(selectedScenario?.id, selectedExecution?.adapter === "playwright" ? selectedExecution.source : selectedScenario?.source, selectedExecution?.adapter === "playwright" ? selectedExecution.grep : undefined, options?.runnerEndpoint);
@@ -96,6 +98,8 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const linkedScenario = selectedOperation ? runtimeSuite.scenarios.find((scenario) => scenario.nodes.some((node) => node.ref === selectedOperation.id)) : undefined;
   const linkedNode = linkedScenario?.nodes.find((node) => node.ref === selectedOperation?.id);
   const applyApiResult = (result: ApiRunResponse) => setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === result.scenarioId ? applyRunResult(scenario, result) : scenario) }));
+  const applySuiteRunResult = useCallback((result: ApiRunResponse) => setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === result.scenarioId ? applyRunResult(scenario, result) : scenario) })), []);
+  const suiteRun = useSuiteRun(options?.runnerEndpoint, applySuiteRunResult);
   const openApiNode = (ref: string, target: "catalog" | "current" = "catalog") => { const operation = catalog.operations.find((item) => item.id === ref); if (operation) { setSelectedOperation(operation); if (target === "catalog") setView("catalog"); } };
   const openScenarioNode = (scenarioId: string, nodeId: string) => { setSelectedScenarioId(scenarioId); setSelectedNodeId(nodeId); setEdgeScreenshots([]); setAllScreenshotsOpen(false); setView("scenario"); const node = groupedSuite.scenarios.find((item) => item.id === scenarioId)?.nodes.find((item) => item.id === nodeId); if (node?.kind === "api" && node.ref) openApiNode(node.ref, "current"); else setSelectedOperation(null); };
   const inspectMapNode = (scenarioId: string, nodeId: string) => { setSelectedScenarioId(scenarioId); setMapNodeId(nodeId); setEdgeScreenshots([]); setAllScreenshotsOpen(false); };
@@ -116,8 +120,8 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const runSelectedMapApi = () => { const node = selectedScenario?.nodes.find((item) => item.id === mapNodeId); if (node?.ref) openApiNode(node.ref, "current"); };
 
   return <main className={`baekstage-root ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
-    <WorkspaceSidebar suite={groupedSuite} open={sidebarOpen} selectedId={selectedScenarioId} onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth} onSelect={(id) => { setView("map"); selectScenario(id); }}/>
-    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1><p>{selectedScenario?.description ?? "UI, API, service와 test result를 Scenario 흐름으로 탐색하세요."}</p><section className="concept-help" lang={language}><div className="language-switch" role="group" aria-label="Concept language"><button className={language === "ko" ? "active" : ""} onClick={() => setLanguage("ko")} aria-pressed={language === "ko"}>한국어</button><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")} aria-pressed={language === "en"}>English</button></div><dl className="concept-glossary" aria-label="Baekstage concepts">{conceptCopy[language].map((concept) => <div key={concept.term}><dt>{concept.term}</dt><dd>{concept.description}</dd></div>)}</dl></section></div><nav className="workspace-tabs" aria-label="Workspace views">{(["map", "scenario", "catalog", "runs"] as const).map((item) => <button className={view === item ? "active" : ""} onClick={() => setView(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav></header>
+    <WorkspaceSidebar suite={groupedSuite} open={sidebarOpen} selectedId={selectedScenarioId} batch={{ policy: suiteRunPolicy, running: suiteRun.running, progress: suiteRun.progress }} onPolicy={setSuiteRunPolicy} onRunAll={() => void suiteRun.run(runtimeSuite.scenarios, suiteRunPolicy)} onStop={suiteRun.stop} onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth} onSelect={(id) => { setView("map"); selectScenario(id); }}/>
+    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1><p>{selectedScenario?.description ?? "UI, API, service와 test result를 Scenario 흐름으로 탐색하세요."}</p><section className="concept-help" lang={language}><div className="language-switch" role="group" aria-label="Concept language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")} aria-pressed={language === "en"}>English</button><button className={language === "ko" ? "active" : ""} onClick={() => setLanguage("ko")} aria-pressed={language === "ko"}>한국어</button></div><dl className="concept-glossary" aria-label="Baekstage concepts">{conceptCopy[language].map((concept) => <div key={concept.term}><dt>{concept.term}</dt><dd>{concept.description}</dd></div>)}</dl></section></div><nav className="workspace-tabs" aria-label="Workspace views">{(["map", "scenario", "catalog", "runs"] as const).map((item) => <button className={view === item ? "active" : ""} onClick={() => setView(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav></header>
     {(view === "map" || (view === "scenario" && !selectedScenario)) && <div className="overview-workspace">
       <SuiteGalaxy suite={groupedSuite} selectedScenarioId={selectedScenarioId ?? undefined} selectedNodeId={mapNodeId ?? undefined} maxDetailDepth={maxDetailDepth} detailStatus={detailStatus} screenshots={screenshots} activeScreenshots={edgeScreenshots} onScreenshotsSelect={selectScreenshots} onSuiteSelect={() => { setSelectedScenarioId(null); setSuiteOpen(true); }} onScenarioSelect={selectScenario} onNodeSelect={inspectMapNode} onApiNodeSelect={openApiNode} onBackgroundClick={closePanels}/>
       <section className="galaxy-filters" aria-label="network graph filters"><div><span>Detail depth</span>{[0,1,2,3].map((depth) => <button className={maxDetailDepth === depth ? "active" : ""} onClick={() => setMaxDetailDepth(depth)} key={depth}>{depth === 0 ? "Main" : depth}</button>)}</div><div><span>Step status</span><button className={detailStatus === "all" ? "active" : ""} onClick={() => setDetailStatus("all")}>All</button><button className={detailStatus === "failed" ? "active" : ""} onClick={() => setDetailStatus("failed")}>Failed</button></div></section>

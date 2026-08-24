@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8
+
+- Add sidebar batch execution with missing-only, rerun-all, and per-scenario confirmation policies.
+- Show batch progress, failures, skipped scenarios, and a stop action.
+- Display the language switch in English-then-Korean order.
+
 ## 0.3.7
 
 - Resolve React, React DOM, and Baekstage through Vite-compatible package imports in the standalone CLI.
