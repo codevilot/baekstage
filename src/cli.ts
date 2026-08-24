@@ -101,7 +101,17 @@ async function start() {
   root = await standaloneRoot(config, cwd); const plugins = [];
   if (config.playwright?.projectRoot || config.sources?.openapi?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; plugins.push(baekstagePlugin({ projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...fileEnv, ...config.playwright?.env }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite })); }
   plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations" } })}` : null; } });
-  const server = await createServer({ root, configFile: false, appType: "spa", plugins, server: { host, port, strictPort: true } });
+  const server = await createServer({
+    root,
+    configFile: false,
+    appType: "spa",
+    plugins,
+    resolve: { dedupe: ["react", "react-dom"] },
+    optimizeDeps: {
+      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
+    },
+    server: { host, port, strictPort: true },
+  });
   await server.listen(); const url = `http://${host}:${port}`; process.stdout.write(`\n  Baekstage ready at ${url}\n  Config: ${path.relative(cwd, file)}\n\n`);
   if (args.open ?? config.server?.open) openBrowser(url);
   const stop = async () => { await server.close(); await appServer.stop(); for (const service of managedServices.reverse()) await service.stop(); await rm(root!, { recursive: true }); process.exit(0); };
