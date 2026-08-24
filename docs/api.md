@@ -8,11 +8,30 @@
 - `defineSuite`: validates all scenarios in a suite.
 - `filterScenario`: filters nodes by project-defined facets.
 - `mergeResult`: immutably applies node execution results.
+- `normalizeExecution`: converts legacy Playwright execution to the common model.
+- `mergeNodeResults` / `applyRunResult`: apply normalized adapter results.
+- `evaluateApiAssertions`: evaluates MVP HTTP assertions independently.
 - `validateScenario`: returns validation failures without rendering.
 
 The browser entry also exports the scenario model types: `ScenarioSuite`,
-`ScenarioGraph`, `ScenarioNode`, `ScenarioEdge`, `ScenarioArtifact`, and
+`ScenarioGraph`, `ScenarioNode`, `ScenarioEdge`, `ScenarioArtifact`,
+`ScenarioExecution`, `ScenarioNodeResult`, `ScenarioRunResult`, `ApiAssertion`, and
 `ScenarioViewerOptions`.
+
+API nodes may define `cases` with an `expectedResponse`, request, assertions, and
+setup strategy. Results carry `runId`, `origin`, observed API evidence, matched
+response branch, failure kind, latest result, and per-node history. Existing
+`node.request`/`node.assertions` definitions normalize to a `default` request-only
+case.
+
+## OpenAPI entry: `baekstage/openapi`
+
+- `parseOpenApiDocument`: normalizes an already parsed OpenAPI 3.x document.
+- `openApiOperationId`: creates stable operation references.
+- `scenariosForOperation` / `operationTestState`: link Catalog and Scenario state.
+
+The CLI reads JSON/YAML files declared in config. The browser entry does not bundle
+Node filesystem APIs.
 
 ## Test entry: `baekstage/playwright`
 
@@ -32,7 +51,7 @@ does not bundle Playwright into Baekstage.
 ## Config entry: `baekstage/config`
 
 - `defineConfig(config)`: typed identity helper for `baekstage.config.ts`.
-- `BaekstageConfig`: suite, Playwright runner, results, and standalone server options.
+- `BaekstageConfig`: suite, source, runner, API limits, results, and server options.
 
 ## Viewer options
 
@@ -42,6 +61,8 @@ type ScenarioViewerOptions = {
   primaryFacet?: string;
   runnerEndpoint?: string;
   traceViewerEndpoint?: string;
+  catalogEndpoint?: string;
+  apiRunnerEndpoint?: string;
 };
 ```
 

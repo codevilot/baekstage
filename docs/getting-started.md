@@ -1,5 +1,9 @@
 # Getting started
 
+Baekstage is a scenario-centered workspace: Map connects test layers, Catalog
+connects OpenAPI operations back to scenarios, and API Workbench executes linked API
+nodes. Existing Playwright-only configs remain valid.
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -8,6 +12,10 @@
 
 Playwright and Vite are optional. They are needed only for screenshot marking and the
 development runner respectively.
+
+To add an OpenAPI source and API node, continue with [OpenAPI sources](openapi.md) and
+[API Workbench](api-workbench.md). API execution requires the connected CLI/Vite
+mode; static embedded viewers can still receive a normalized `catalog` prop.
 
 ## Standalone workspace
 
@@ -69,6 +77,9 @@ services, routes, or request IDs can be represented without changing the library
 
 - Static mode needs only a `ScenarioSuite`. Graph navigation works without a server.
 - Connected mode uses `runnerEndpoint` to fetch results and start Playwright runs.
+- The repository demo uses an internal KPI Playwright fixture when the default Data
+  Foundry checkout is absent. Set `PLAYWRIGHT_PROJECT_ROOT=/absolute/path/to/tdp-web`
+  before `npm run dev` to run the real scenario sources instead.
 - Trace viewing uses `traceViewerEndpoint`; it defaults to `/trace-viewer`.
 
 The included Vite adapter implements both endpoints in development. Other frameworks

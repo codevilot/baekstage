@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import type { BaekstageConfig } from "./config";
 import { baekstagePlugin } from "./vite/scenario-plugin";
+import { loadOpenApiSources } from "./openapi/loader";
+import { validateResponseEdges } from "./core/api-response";
 
 type Args = { config?: string; host?: string; port?: number; open?: boolean; help?: boolean };
 const candidates = ["baekstage.config.ts", "baekstage.config.mts", "baekstage.config.js", "baekstage.config.mjs", "baekstage.config.json"];
@@ -56,7 +58,7 @@ async function standaloneRoot(config: BaekstageConfig) {
   const react = fileURLToPath(import.meta.resolve("react"));
   const reactDom = fileURLToPath(import.meta.resolve("react-dom/client"));
   await writeFile(path.join(root, "index.html"), '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baekstage</title><style>html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script type="module" src="/main.js"></script></body></html>');
-  await writeFile(path.join(root, "main.js"), `import React from ${JSON.stringify(fsUrl(react))};import{createRoot}from ${JSON.stringify(fsUrl(reactDom))};import{ScenarioViewer}from ${JSON.stringify(fsUrl(library))};import ${JSON.stringify(fsUrl(css))};import config from "virtual:baekstage-config";createRoot(document.getElementById("root")).render(React.createElement(ScenarioViewer,{suite:config.suite,options:config.options}));`);
+  await writeFile(path.join(root, "main.js"), `import React from ${JSON.stringify(fsUrl(react))};import{createRoot}from ${JSON.stringify(fsUrl(reactDom))};import{ScenarioViewer}from ${JSON.stringify(fsUrl(library))};import ${JSON.stringify(fsUrl(css))};import config from "virtual:baekstage-config";createRoot(document.getElementById("root")).render(React.createElement(ScenarioViewer,{suite:config.suite,catalog:config.catalog,options:config.options}));`);
   return root;
 }
 
@@ -71,9 +73,13 @@ async function start() {
   const cwd = process.cwd(); const file = configPath(cwd, args.config); const config = await loadConfig(cwd, file);
   if (!config?.suite?.scenarios) throw new Error("Config must provide a ScenarioSuite as suite");
   const host = args.host ?? config.server?.host ?? "127.0.0.1"; const port = args.port ?? config.server?.port ?? 4173;
+  const catalog = await loadOpenApiSources(cwd, config.sources?.openapi);
+  const responseWarnings = config.suite.scenarios.flatMap((scenario) => validateResponseEdges(scenario, catalog.operations).map((message) => ({ sourceId: scenario.id, message })));
+  if (config.validation?.strictOpenApiResponses && responseWarnings.length) throw new Error(responseWarnings.map((item) => item.message).join("\n"));
+  catalog.errors?.push(...responseWarnings);
   const root = await standaloneRoot(config); const plugins = [];
-  if (config.playwright?.projectRoot) plugins.push(baekstagePlugin({ projectRoot: path.resolve(cwd, config.playwright.projectRoot), resultRoot: path.resolve(cwd, config.results ?? ".baekstage/results"), command: config.playwright.command, commandArgs: config.playwright.commandArgs, env: config.playwright.env }));
-  plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer" } })}` : null; } });
+  if (config.playwright?.projectRoot || config.sources?.openapi?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; plugins.push(baekstagePlugin({ projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: config.playwright?.env, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite })); }
+  plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations" } })}` : null; } });
   const server = await createServer({ root, configFile: false, appType: "spa", plugins, server: { host, port, strictPort: true } });
   await server.listen(); const url = `http://${host}:${port}`; process.stdout.write(`\n  Baekstage ready at ${url}\n  Config: ${path.relative(cwd, file)}\n\n`);
   if (args.open ?? config.server?.open) openBrowser(url);

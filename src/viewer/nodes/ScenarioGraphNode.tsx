@@ -12,8 +12,8 @@ export function facetColor(value?: string) {
 export function ScenarioGraphNode({ data, selected }: NodeProps<DetailNode>) {
   return <div className={`graph-node color-${facetColor(data.kind)} status-${data.status ?? "planned"} kind-${data.kind} ${selected ? "selected" : ""}`}>
     <Handle type="target" position={Position.Left}/>
-    <div className="node-meta"><small>{data.kind}</small>{data.status === "failed" && <span>FAILED</span>}</div>
-    <strong>{data.title}</strong>{typeof data.metadata?.route === "string" && <code>{data.metadata.route}</code>}
+    <div className="node-meta"><small>{data.layer ?? data.kind}</small>{data.status === "failed" && <span>TEST FAILED</span>}{data.status === "passed" && <span>PASSED</span>}</div>
+    <strong>{data.title}</strong><code>{[data.latestResult?.api?.response ? `HTTP ${data.latestResult.api.response.status}` : "", typeof data.metadata?.durationMs === "number" ? `${data.metadata.durationMs} ms` : "", data.artifacts?.length ? `${data.artifacts.length} artifacts` : "", data.ref?.startsWith("openapi:") ? "OpenAPI linked" : ""].filter(Boolean).join(" · ")}</code>{typeof data.metadata?.route === "string" && <code>{data.metadata.route}</code>}
     <Handle type="source" position={Position.Right}/>
   </div>;
 }

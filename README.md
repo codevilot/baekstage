@@ -1,7 +1,13 @@
 # Baekstage
 
-Baekstage turns branching Playwright journeys into an interactive graph. Run it as a
-standalone test workspace or embed the same viewer in an existing React application.
+Baekstage connects UI, API, server, database, and worker tests around a shared user
+scenario. It shows validation coverage and failure location in one development and
+test workspace while keeping Storybook, OpenAPI tooling, Playwright, and existing
+test frameworks in their specialist roles.
+
+Explore UI states like Storybook, browse and execute API operations like Swagger,
+and run full user journeys with Playwright traces. Baekstage normalizes their results
+into one scenario graph instead of replacing those tools.
 
 ## Quick start
 
@@ -16,6 +22,12 @@ import { defineConfig } from "baekstage/config";
 import { defineSuite } from "baekstage";
 
 export default defineConfig({
+  sources: { openapi: [{
+    id: "dataset-manager",
+    title: "Dataset Manager API",
+    file: "./openapi.yaml",
+    environments: { Local: "http://localhost:8080" },
+  }] },
   suite: defineSuite({
     name: "Checkout tests",
     scenarios: [{
@@ -25,9 +37,16 @@ export default defineConfig({
       execution: { grep: "card succeeds" },
       nodes: [
         { id: "cart", title: "Cart", kind: "screen" },
+        { id: "create-payment", title: "Create payment", kind: "api",
+          ref: "openapi:dataset-manager:POST:/payments",
+          request: { body: { method: "card" } },
+          assertions: [{ type: "status", equals: 201 }] },
         { id: "paid", title: "Payment complete", kind: "outcome" },
       ],
-      edges: [{ id: "checkout", source: "cart", target: "paid" }],
+      edges: [
+        { id: "checkout", source: "cart", target: "create-payment" },
+        { id: "paid", source: "create-payment", target: "paid" },
+      ],
     }],
   }),
   playwright: { projectRoot: "." },
@@ -42,6 +61,11 @@ npx baekstage --open
 
 Baekstage opens at `http://127.0.0.1:4173`. Select a scenario to run Playwright and
 review its node-scoped screenshots and Trace snapshots.
+Use **Catalog** to search registered OpenAPI operations, inspect schemas, find linked
+scenarios, and execute linked API nodes through the protected local proxy.
+Expected error cases such as `404` or `409` can pass when their configured response
+branch and assertions match. Branches without reproduction cases remain untested and
+are not inserted into the Scenario graph automatically.
 
 To use `npm run baekstage`, add an ordinary project script:
 
@@ -64,6 +88,10 @@ npx baekstage [options]
 
 Config discovery supports `baekstage.config.ts`, `.mts`, `.js`, `.mjs`, and `.json`.
 Results are stored in `.baekstage/results` unless configured otherwise.
+
+Playwright network evidence is opt-in through `observeApiScenario()` or
+`createBaekstageTest()` from `baekstage/playwright`. Baekstage does not automatically
+inspect every existing test or parse network data from Trace ZIP files.
 
 ## Embed in React or Next.js
 
@@ -100,6 +128,9 @@ await markElementScreenshot(page.getByTestId("kpi"), testInfo, {
 - [Getting started and configuration](docs/getting-started.md)
 - [CLI reference](docs/cli.md)
 - [Playwright screenshots and node IDs](docs/playwright-integration.md)
+- [OpenAPI sources and Catalog](docs/openapi.md)
+- [API Workbench](docs/api-workbench.md)
+- [Security model](docs/security.md)
 - [Runner and HTTP contract](docs/runner.md)
 - [Public API](docs/api.md)
 - [Publishing](docs/publishing.md)

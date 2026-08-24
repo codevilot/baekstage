@@ -1,0 +1,30 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Dataset Manager API", "version": "1.0.0" },
+  "servers": [{ "url": "http://localhost:8080" }],
+  "paths": {
+    "/conversion/jobs/{id}/retry": {
+      "post": {
+        "tags": ["Conversion"],
+        "operationId": "retryConversion",
+        "summary": "Retry a failed conversion job",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "example": "abc-123" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "force": { "type": "boolean" } } }, "example": { "force": false } } } },
+        "responses": {
+          "200": { "description": "Retry accepted", "headers": { "X-Queue-Id": { "description": "Queue message ID", "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RetryAccepted" }, "example": { "status": "queued" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "INVALID_REQUEST" } } } },
+          "404": { "description": "Job not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "JOB_NOT_FOUND" } } } },
+          "409": { "description": "Job already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "JOB_ALREADY_RUNNING" } } } },
+          "500": { "description": "Queue unavailable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "QUEUE_UNAVAILABLE" } } } },
+          "default": { "description": "Unexpected error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RetryAccepted": { "allOf": [{ "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["queued"] } } }] },
+      "ApiError": { "oneOf": [{ "type": "object", "required": ["code"], "properties": { "code": { "type": "string" }, "detail": { "type": "string", "nullable": true } } }, { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" } } }] }
+    }
+  }
+}

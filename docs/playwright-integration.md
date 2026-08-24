@@ -1,5 +1,57 @@
 # Playwright integration
 
+## Observe API evidence
+
+```ts
+import { observeApiScenario } from "baekstage/playwright";
+
+test("retry failed job", async ({ page }, testInfo) => {
+  const observe = observeApiScenario(page, testInfo, {
+    scenarioId: "retry-failed-conversion",
+  });
+  await page.getByRole("button", { name: "Retry" }).click();
+  await observe.flush();
+});
+```
+
+The runner matches method, configured source origin, and templated OpenAPI path. One
+match links evidence, multiple matches remain ambiguous, and no match is undocumented.
+Trace ZIP internals are not parsed. Request bodies are omitted by default.
+
+`flush()` removes listeners and waits briefly for responses already in flight. Call it
+in `finally`. For automatic teardown, extend the existing test object:
+
+```ts
+import { test as base } from "@playwright/test";
+import { createBaekstageTest } from "baekstage/playwright";
+
+export const test = createBaekstageTest(base, {
+  scenarioIdFromTest: ({ title }) => title,
+  include: [{ sourceId: "dataset-manager" }],
+  exclude: ["**/analytics/**", "**/health", "**/events"],
+});
+
+test("retry-failed-conversion", async ({ page, baekstage }) => {
+  await baekstage.step({
+    id: "click-retry",
+    fromNodeId: "retry-button",
+    toNodeId: "retry-request",
+    edgeId: "retry-button-to-request",
+    caseId: "already-running",
+  }, () => page.getByRole("button", { name: "Retry" }).click());
+});
+```
+
+Only requests started inside an explicit `step()` receive that marker, and one step may
+own multiple requests. Excluded requests are ignored. Hints narrow matching; multiple
+remaining candidates stay ambiguous. `markNode()` can label requests collected since
+the previous mark, but `step()` is preferred.
+
+The observer covers only the supplied page. Popups/new pages need a separate observer.
+Service-worker attribution, WebSocket, SSE stream bodies, and Trace ZIP network
+extraction are not supported. Redirects are captured as separate Playwright requests.
+Applying the observer is explicit; existing tests are not captured automatically.
+
 Import marker helpers from the lightweight Playwright entry. It does not load React or
 the graph renderer into the test process.
 

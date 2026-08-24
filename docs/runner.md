@@ -2,6 +2,10 @@
 
 ## Vite adapter
 
+The runner now uses small execution adapters. `PlaywrightExecutionAdapter` preserves
+the existing scenario endpoint, while `ApiExecutionAdapter` powers Workbench. They
+return the same `ScenarioRunResult`/`ScenarioNodeResult` model.
+
 ```ts
 import { baekstagePlugin } from "baekstage/vite";
 
@@ -14,6 +18,7 @@ baekstagePlugin({
   command: "npm",
   commandArgs: ["exec", "--", "playwright", "test"],
   env: { CI: "1" },
+  maxRunsPerNode: 50,
 });
 ```
 
@@ -27,6 +32,36 @@ test harness.
 ## HTTP contract
 
 Frameworks other than Vite can implement the same API.
+
+### Read the OpenAPI Catalog
+
+```http
+GET /api/catalog
+```
+
+### Run a registered API operation
+
+```http
+POST /api/operations/run
+Content-Type: application/json
+
+{"sourceId":"dataset-manager","operationId":"openapi:dataset-manager:POST:/jobs/{id}/retry","scenarioId":"retry","nodeId":"retry-request","path":{"id":"abc"},"headers":{"Authorization":"Bearer …"}}
+```
+
+The server ignores arbitrary URLs because none are accepted in this contract. See
+[Security](security.md) for limits and secret handling.
+
+Each response includes a stable `runId`, origin, node result, matched OpenAPI response
+branch, assertion results, and failure kind. Replay history is available from:
+
+```http
+GET /api/operations/history/:scenarioId/:nodeId
+```
+
+Observed Playwright evidence and replay results share this history. Writes use a
+unique temporary file followed by atomic rename. A malformed JSON file is skipped.
+Runs are sorted by `finishedAt`, and files beyond `maxRunsPerNode` are removed oldest
+first. Scenario and node IDs are encoded as individual path segments.
 
 ### Read the latest result
 

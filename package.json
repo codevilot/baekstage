@@ -1,9 +1,17 @@
 {
   "name": "baekstage",
   "version": "0.2.0",
-  "description": "Visualize, run, and review branching Playwright scenarios as an interactive graph.",
+  "description": "Connect UI, API, server, database, and worker tests in a scenario-centered workspace.",
   "license": "MIT",
-  "keywords": ["playwright", "testing", "scenario", "graph", "visualization", "react"],
+  "keywords": [
+    "playwright",
+    "openapi",
+    "testing",
+    "scenario",
+    "graph",
+    "visualization",
+    "react"
+  ],
   "type": "module",
   "main": "./dist-lib/baekstage.js",
   "types": "./dist-types/index.d.ts",
@@ -24,10 +32,18 @@
       "types": "./dist-types/vite/scenario-plugin.d.ts",
       "import": "./dist-lib/vite.js"
     },
+    "./openapi": {
+      "types": "./dist-types/openapi/catalog.d.ts",
+      "import": "./dist-lib/openapi.js"
+    },
     "./style.css": "./dist-lib/baekstage.css"
   },
-  "bin": { "baekstage": "./dist-lib/cli.js" },
-  "sideEffects": ["**/*.css"],
+  "bin": {
+    "baekstage": "dist-lib/cli.js"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
   "files": [
     "dist-lib",
     "dist-types",
@@ -44,11 +60,14 @@
     "build:lib": "npm run clean:lib && vite build --config vite.lib.config.ts && tsc --project tsconfig.lib.json",
     "test": "vitest run",
     "test:cli": "node scripts/test/cli-smoke.mjs",
+    "test:e2e": "playwright test",
     "prepack": "npm test && npm run build:lib"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.2",
-    "react-force-graph-2d": "^1.29.1"
+    "ajv": "^8.20.0",
+    "react-force-graph-2d": "^1.29.1",
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
     "react": ">=18.3",
@@ -56,19 +75,35 @@
     "vite": ">=6 <9"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": false }
+    "vite": {
+      "optional": false
+    }
   },
-  "engines": { "node": ">=20" },
-  "publishConfig": { "access": "public", "provenance": true },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "codevilot",
-  "repository": { "type": "git", "url": "git+https://github.com/codevilot/baekstage.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codevilot/baekstage.git"
+  },
   "homepage": "https://github.com/codevilot/baekstage#readme",
-  "bugs": { "url": "https://github.com/codevilot/baekstage/issues" },
+  "bugs": {
+    "url": "https://github.com/codevilot/baekstage/issues"
+  },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",
+    "jsdom": "^26.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "typescript": "^5.9.0",

@@ -1,16 +1,17 @@
-import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ForceGraphMethods } from "react-force-graph-2d";
 import type { ScenarioArtifact, ScenarioSuite } from "../core/types";
 import { useElementSize } from "../hooks/layout/use-element-size";
 import { artifactMatchesEdge, screenshotsForNode } from "../core/artifacts";
+import { scenarioNodeContext } from "../core/scenario-acts";
 
-type NetworkNode = { id: string; graphNodeId?: string; label: string; subtitle?: string; kind: "root" | "scenario" | "step"; scenarioId?: string; color: string; size: number; failed?: boolean; passed?: boolean; stepNumber?: number; x?: number; y?: number; fx?: number; fy?: number };
+type NetworkNode = { id: string; graphNodeId?: string; label: string; subtitle?: string; description?: string; actTitle?: string; nodeKind?: string; kind: "root" | "scenario" | "step"; scenarioId?: string; color: string; size: number; failed?: boolean; passed?: boolean; stepNumber?: number; x?: number; y?: number; fx?: number; fy?: number };
 type NetworkLink = { source: string | NetworkNode; target: string | NetworkNode; color: string; width: number; screenshots?: ScenarioArtifact[] };
 const ForceGraph2D = lazy(() => import("react-force-graph-2d")) as typeof import("react-force-graph-2d").default;
 
 function nodeColor(kind: string, failed: boolean) {
   if (failed) return "#ef4444";
-  return ({ fixture: "#94a3b8", action: "#f59e0b", screen: "#22d3ee", database: "#10b981", assertion: "#a78bfa", outcome: "#60a5fa", api: "#f472b6" } as Record<string, string>)[kind] ?? "#64748b";
+  return ({ fixture: "#94a3b8", action: "#f59e0b", screen: "#22d3ee", api: "#f472b6", service: "#fb923c", database: "#10b981", worker: "#eab308", external: "#818cf8", assertion: "#a78bfa", outcome: "#60a5fa" } as Record<string, string>)[kind] ?? "#64748b";
 }
 
 function edgeShots(shots: ScenarioArtifact[], edge: { id: string; source: string; target: string } | null, target: string) {
@@ -36,7 +37,7 @@ function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "all" | "
     const visible = new Set(scenario.nodes.filter((node) => (depths.get(node.id) ?? 1) <= depthLimit && (status === "all" || node.status === "failed")).map((node) => node.id));
     const failurePath = new Set(scenario.nodes.filter((node) => node.status === "failed").map((node) => node.id));
     for (let pass = 0; pass < scenario.nodes.length; pass += 1) for (const edge of scenario.edges) if (failurePath.has(edge.target)) failurePath.add(edge.source);
-    for (const [index, node] of scenario.nodes.entries()) if (visible.has(node.id)) nodes.push({ id: `${rootId}:${node.id}`, graphNodeId: node.id, label: node.title, kind: "step", scenarioId: scenario.id, color: nodeColor(node.kind, node.status === "failed"), size: 7, failed: node.status === "failed", passed: node.status === "passed", stepNumber: index + 1 });
+    for (const [index, node] of scenario.nodes.entries()) if (visible.has(node.id)) { const act = scenarioNodeContext(scenario, node.id).act; nodes.push({ id: `${rootId}:${node.id}`, graphNodeId: node.id, label: node.title, subtitle: `Act ${act ? scenarioNodeContext(scenario, node.id).actIndex + 1 : "-"} · ${act?.title ?? node.kind}`, description: node.description ?? "Click to inspect this step's flow and evidence.", actTitle: act?.title, nodeKind: node.kind, kind: "step", scenarioId: scenario.id, color: nodeColor(node.kind, node.status === "failed"), size: 7, failed: node.status === "failed", passed: node.status === "passed", stepNumber: index + 1 }); }
     for (const node of scenario.nodes) if (visible.has(node.id)) {
       const parents = scenario.edges.filter((edge) => edge.target === node.id && visible.has(edge.source));
       const failingRoute = failurePath.has(node.id);
@@ -55,12 +56,16 @@ function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "all" | "
     nodes.filter((node) => node.scenarioId === selectedId).forEach((node) => { const level = levels.get(node.id) ?? 0; columns.set(level, [...(columns.get(level) ?? []), node]); });
     [...columns].forEach(([level, items]) => items.forEach((node, index) => { node.fx = level * 125; node.fy = (index - (items.length - 1) / 2) * 72; }));
   }
-  const layer = { step: 0, scenario: 1, root: 2 };
+  // ForceGraph uses the same node order for its hidden pointer-picking canvas.
+  // Paint broad root/scenario hit areas first so a step always wins an overlap.
+  const layer = { root: 0, scenario: 1, step: 2 };
   nodes.sort((left, right) => layer[left.kind] - layer[right.kind]);
   return { nodes, links };
 }
 
 function endpointId(value: string | NetworkNode) { return typeof value === "string" ? value : value.id; }
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+function nodeTooltip(node: NetworkNode) { if (node.kind !== "step") return escapeHtml(node.label); return `<strong>${escapeHtml(node.label)}</strong><br><span>${escapeHtml(node.subtitle ?? node.nodeKind ?? "Step")}</span><br><small>${escapeHtml(node.description ?? "")}</small><br><em>Click to open this node</em>`; }
 
 function fitText(context: CanvasRenderingContext2D, value: string, maxWidth: number) {
   if (context.measureText(value).width <= maxWidth) return value;
@@ -69,14 +74,16 @@ function fitText(context: CanvasRenderingContext2D, value: string, maxWidth: num
   return `${text}…`;
 }
 
-function drawNode(node: NetworkNode, context: CanvasRenderingContext2D, scale: number, selected?: string, activeNodeIds = new Set<string>()) {
+function drawNode(node: NetworkNode, context: CanvasRenderingContext2D, scale: number, selected?: string, activeNodeIds = new Set<string>(), hoveredId?: string, selectedStepId?: string, selectedActIds = new Set<string>()) {
   const active = selected ? node.kind === "root" || node.scenarioId === selected : !activeNodeIds.size || activeNodeIds.has(node.id);
+  const hovered = node.id === hoveredId;
   const radius = node.size;
   context.globalAlpha = active ? 1 : .16;
-  context.beginPath(); context.arc(node.x ?? 0, node.y ?? 0, radius, 0, Math.PI * 2);
-  context.fillStyle = node.kind === "root" ? "#e2e8f0" : node.kind === "step" ? "#111827" : node.color; context.fill();
-  context.lineWidth = (node.failed || node.passed) ? 2 / scale : 1 / scale;
-  context.strokeStyle = node.failed ? "#ef4444" : node.passed ? "#10b981" : "rgba(255,255,255,.45)"; context.stroke();
+  const selectedStep = node.id === selectedStepId; const selectedAct = selectedActIds.has(node.id);
+  context.beginPath(); context.arc(node.x ?? 0, node.y ?? 0, selectedStep ? radius + 2 / scale : radius, 0, Math.PI * 2);
+  context.fillStyle = node.kind === "root" ? "#e2e8f0" : selectedStep ? node.color : selectedAct ? `${node.color}55` : node.kind === "step" ? "#111827" : node.color; context.fill();
+  context.lineWidth = selectedStep ? 4 / scale : selectedAct ? 3 / scale : (node.failed || node.passed) ? 2 / scale : 1 / scale;
+  context.strokeStyle = selectedStep ? "#f8fafc" : selectedAct ? node.color : node.failed ? "#ef4444" : node.passed ? "#10b981" : "rgba(255,255,255,.45)"; context.stroke();
   if (node.kind === "step" && node.stepNumber) {
     context.fillStyle = "#f8fafc"; context.font = `800 ${7 / scale}px Inter,sans-serif`;
     context.textAlign = "center"; context.textBaseline = "middle";
@@ -85,14 +92,14 @@ function drawNode(node: NetworkNode, context: CanvasRenderingContext2D, scale: n
   if (node.kind === "step" && scale < 1.15) { context.globalAlpha = 1; return; }
   const fontSize = (node.kind === "scenario" ? 12 : 10) / scale;
   context.font = `${node.kind === "scenario" ? 700 : 500} ${fontSize}px Inter, sans-serif`;
-  const visibleLabel = fitText(context, node.label, 180 / scale);
+  const visibleLabel = hovered ? fitText(context, node.label, 300 / scale) : fitText(context, node.label, 180 / scale);
   const labelWidth = context.measureText(visibleLabel).width;
   const labelX = (node.x ?? 0) + radius + 5 / scale;
   const labelY = (node.y ?? 0) - (node.kind === "scenario" ? 13 : 6) / scale;
   if (node.kind === "scenario") {
-    context.fillStyle = "rgba(8,13,24,.88)";
-    context.strokeStyle = node.failed ? "rgba(239,68,68,.8)" : "rgba(148,163,184,.32)";
-    context.lineWidth = 1 / scale;
+    context.fillStyle = hovered ? "rgba(15,23,42,.98)" : "rgba(8,13,24,.88)";
+    context.strokeStyle = hovered ? "#facc15" : node.failed ? "rgba(239,68,68,.8)" : "rgba(148,163,184,.32)";
+    context.lineWidth = (hovered ? 2 : 1) / scale;
     context.beginPath(); context.roundRect(labelX - 4 / scale, labelY - 4 / scale, labelWidth + 12 / scale, 34 / scale, 5 / scale); context.fill(); context.stroke();
   }
   context.fillStyle = "#f8fafc"; context.textAlign = "left"; context.textBaseline = "top";
@@ -110,7 +117,7 @@ function drawHitArea(node: NetworkNode, color: string, context: CanvasRenderingC
     context.fill();
     return;
   }
-  context.beginPath(); context.arc(x, y, Math.max(9 / scale, 6), 0, Math.PI * 2); context.fill();
+  context.beginPath(); context.roundRect(x - 11 / scale, y - 13 / scale, 205 / scale, 27 / scale, 7 / scale); context.fill();
 }
 
 function linkCenter(link: NetworkLink) {
@@ -147,10 +154,14 @@ function drawLinkHitArea(link: NetworkLink, color: string, context: CanvasRender
   context.fillStyle = color; context.fillRect(center.x - 16 / scale, center.y - 12 / scale, 32 / scale, 24 / scale);
 }
 
-export function SuiteGalaxy({ suite, selectedScenarioId, maxDetailDepth, detailStatus, screenshots = [], activeScreenshots = [], onScreenshotsSelect, onSuiteSelect, onScenarioSelect, onBackgroundClick }: { suite: ScenarioSuite; selectedScenarioId?: string; maxDetailDepth: number; detailStatus: "all" | "failed"; screenshots?: ScenarioArtifact[]; activeScreenshots?: ScenarioArtifact[]; onScreenshotsSelect: (items: ScenarioArtifact[]) => void; onSuiteSelect: () => void; onScenarioSelect: (id: string) => void; onBackgroundClick: () => void }) {
+export function SuiteGalaxy({ suite, selectedScenarioId, selectedNodeId, maxDetailDepth, detailStatus, screenshots = [], activeScreenshots = [], onScreenshotsSelect, onSuiteSelect, onScenarioSelect, onNodeSelect, onApiNodeSelect, onBackgroundClick }: { suite: ScenarioSuite; selectedScenarioId?: string; selectedNodeId?: string; maxDetailDepth: number; detailStatus: "all" | "failed"; screenshots?: ScenarioArtifact[]; activeScreenshots?: ScenarioArtifact[]; onScreenshotsSelect: (items: ScenarioArtifact[]) => void; onSuiteSelect: () => void; onScenarioSelect: (id: string) => void; onNodeSelect?: (scenarioId: string, nodeId: string) => void; onApiNodeSelect?: (ref: string) => void; onBackgroundClick: () => void }) {
   const data = useMemo(() => makeNetwork(suite, maxDetailDepth, detailStatus, screenshots, selectedScenarioId), [suite, maxDetailDepth, detailStatus, screenshots, selectedScenarioId]);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string>();
+  const renderData = useMemo(() => hoveredNodeId && !selectedScenarioId ? { ...data, nodes: [...data.nodes].sort((left, right) => Number(left.id === hoveredNodeId) - Number(right.id === hoveredNodeId)) } : data, [data, hoveredNodeId, selectedScenarioId]);
   const activeUrls = useMemo(() => new Set(activeScreenshots.map((item) => item.url)), [activeScreenshots]);
   const activeNodeIds = useMemo(() => new Set(data.links.filter((link) => link.screenshots?.some((item) => activeUrls.has(item.url))).flatMap((link) => [endpointId(link.source), endpointId(link.target)])), [activeUrls, data.links]);
+  const selectedNetworkNodeId = selectedScenarioId && selectedNodeId ? `scenario:${selectedScenarioId}:${selectedNodeId}` : undefined;
+  const selectedActIds = useMemo(() => { if (!selectedScenarioId || !selectedNodeId) return new Set<string>(); const scenario = suite.scenarios.find((item) => item.id === selectedScenarioId); const act = scenario && scenarioNodeContext(scenario, selectedNodeId).act; return new Set(act?.nodes.map((node) => `scenario:${selectedScenarioId}:${node.id}`) ?? []); }, [selectedNodeId, selectedScenarioId, suite]);
   const graphRef = useRef<ForceGraphMethods<NetworkNode, NetworkLink> | undefined>(undefined);
   const needsInitialFit = useRef(true);
   const { ref, width, height } = useElementSize<HTMLElement>();
@@ -170,6 +181,9 @@ export function SuiteGalaxy({ suite, selectedScenarioId, maxDetailDepth, detailS
   const selectNode = (node: NetworkNode) => {
     if (node.kind === "root") return onSuiteSelect();
     if (node.kind === "step") {
+      const scenario = suite.scenarios.find((item) => item.id === node.scenarioId); const sourceNode = scenario?.nodes.find((item) => item.id === node.graphNodeId || item.id.endsWith(`:${node.graphNodeId}`));
+      if (scenario && sourceNode && onNodeSelect) return onNodeSelect(scenario.id, sourceNode.id);
+      if (sourceNode?.kind === "api" && sourceNode.ref) return onApiNodeSelect?.(sourceNode.ref);
       const captures = screenshotsForNode(node.graphNodeId ?? node.id, screenshots);
       if (captures.length) return onScreenshotsSelect(captures);
       return;
@@ -188,8 +202,8 @@ export function SuiteGalaxy({ suite, selectedScenarioId, maxDetailDepth, detailS
     }
   };
   return <section ref={ref} className="galaxy" aria-label="All scenarios network graph">
-    <div className="galaxy-legend"><span><i className="main-dot"/>Suite</span><span><i className="scenario-dot"/>Scenario</span><span><i className="failed-dot"/>Failed</span></div>
+    <div className="galaxy-legend"><span><i className="main-dot"/>Suite</span><span><i className="scenario-dot"/>Scenario</span><span><i className="failed-dot"/>Failed</span>{selectedNodeId && <><span><i className="act-selected-dot"/>Selected Act</span><span><i className="step-selected-dot"/>Selected Step</span></>}</div>
     <nav className="network-zoom" aria-label="Graph zoom controls"><button onClick={() => changeZoom(1.35)} aria-label="Zoom in">+</button><button onClick={() => changeZoom(1 / 1.35)} aria-label="Zoom out">−</button><button onClick={showOverview} aria-label="Show all scenarios" title="전체 시나리오 보기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9.5 20v-6h5v6"/></svg></button></nav>
-    <Suspense fallback={null}><ForceGraph2D ref={graphRef} width={width} height={height} graphData={data} backgroundColor="#080d18" cooldownTicks={selectedScenarioId ? 1 : 120} d3AlphaDecay={selectedScenarioId ? 1 : .045} d3VelocityDecay={.38} enableNodeDrag={false} enableZoomInteraction enablePanInteraction nodeLabel="label" nodeRelSize={1} nodeCanvasObject={(node, context, scale) => drawNode(node, context, scale, selectedScenarioId, activeNodeIds)} nodePointerAreaPaint={drawHitArea} linkColor={(link) => activeLink(link) ? link.color : "rgba(51,65,85,.07)"} linkWidth={(link) => activeLink(link) ? link.width : .18} linkDirectionalArrowLength={0} linkCanvasObjectMode={() => "after"} linkCanvasObject={(link, context, scale) => drawLinkMarker(link, context, scale, activeUrls)} linkPointerAreaPaint={drawLinkHitArea} onLinkClick={(link) => link.screenshots?.length && onScreenshotsSelect(link.screenshots)} onEngineStop={fitAfterLayout} onNodeClick={selectNode} onBackgroundClick={onBackgroundClick}/></Suspense>
+    <Suspense fallback={null}><ForceGraph2D ref={graphRef} width={width} height={height} graphData={renderData} backgroundColor="#080d18" cooldownTicks={selectedScenarioId ? 1 : 120} d3AlphaDecay={selectedScenarioId ? 1 : .045} d3VelocityDecay={.38} enableNodeDrag={false} enableZoomInteraction enablePanInteraction nodeLabel={nodeTooltip} nodeRelSize={1} nodeCanvasObject={(node, context, scale) => drawNode(node, context, scale, selectedScenarioId, activeNodeIds, hoveredNodeId, selectedNetworkNodeId, selectedActIds)} nodePointerAreaPaint={drawHitArea} linkColor={(link) => activeLink(link) ? link.color : "rgba(51,65,85,.07)"} linkWidth={(link) => activeLink(link) ? link.width : .18} linkDirectionalArrowLength={0} linkCanvasObjectMode={() => "after"} linkCanvasObject={(link, context, scale) => drawLinkMarker(link, context, scale, activeUrls)} linkPointerAreaPaint={drawLinkHitArea} onLinkClick={(link) => link.screenshots?.length && onScreenshotsSelect(link.screenshots)} onEngineStop={fitAfterLayout} onNodeHover={(node) => setHoveredNodeId(node?.id)} onNodeClick={selectNode} onBackgroundClick={onBackgroundClick}/></Suspense>
   </section>;
 }
