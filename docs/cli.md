@@ -19,6 +19,7 @@ removed when the process receives `SIGINT` or `SIGTERM`.
 import { defineConfig } from "baekstage/config";
 
 export default defineConfig({
+  envFile: ".env.baekstage",
   suite,
   playwright: {
     projectRoot: "./tdp-web",
@@ -31,6 +32,18 @@ export default defineConfig({
     url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
     timeoutMs: 120_000,
+  },
+  services: {
+    database: {
+      command: "docker compose up postgres",
+      url: "tcp://127.0.0.1:55432",
+      reuseExistingServer: false,
+    },
+    api: {
+      cwd: "./server",
+      command: "npm run dev",
+      url: "http://127.0.0.1:48080/health",
+    },
   },
   results: ".baekstage/results",
   server: {
@@ -45,6 +58,11 @@ export default defineConfig({
 viewer. Relative paths are resolved from the directory where Baekstage is executed.
 
 CLI host, port, and open flags override values in the config file.
+
+`envFile` loads dotenv-style values into managed services, the app server, and the
+Playwright child only; it does not mutate the Baekstage process environment. Services
+start in declaration order, accept HTTP(S) or TCP readiness URLs, and stop in reverse
+order. Put `.env.baekstage` in `.gitignore` when it contains credentials.
 
 `webServer` lets the CLI own the application server without a `.env` file. Baekstage
 reuses a healthy server by default, otherwise starts `command`, waits for `url`, and
