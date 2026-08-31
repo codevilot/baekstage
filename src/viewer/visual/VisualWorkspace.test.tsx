@@ -13,15 +13,19 @@ const stories = [
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("VisualWorkspace story explorer", () => {
-  it("filters by title root and marks modified and new stories like an editor", async () => {
+  it("keeps code changes separate and captures only the selected story on demand", async () => {
+    let captures = 0;
+    let changedFileRequests = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/sources")) return Response.json([{ id: "current", url: "http://story", branch: "feature" }]);
       if (url.endsWith("/branches")) return Response.json({ branches: ["feature"], worktrees: [] });
       if (url.endsWith("/commits")) return Response.json([{ sha: "a".repeat(40), shortSha: "aaaaaaa", committedAt: "2026-08-30T00:00:00Z", subject: "Current commit" }, { sha: "b".repeat(40), shortSha: "bbbbbbb", committedAt: "2026-08-29T00:00:00Z", subject: "Previous UI" }]);
+      if (url.includes("/changed-files")) { changedFileRequests += 1; return Response.json([{ status: "M", path: "src/Button.tsx" }, { status: "A", path: "src/NewCard.tsx" }]); }
       if (url.includes("/stories?source=current")) return Response.json(stories);
       if (url.includes("/annotations")) return Response.json([]);
       if (url.endsWith("/capture") && init?.body) {
+        captures += 1;
         const { storyId } = JSON.parse(String(init.body));
         const added = storyId === "components-button--primary";
         return Response.json({
@@ -44,13 +48,20 @@ describe("VisualWorkspace story explorer", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "All 2" }));
     await userEvent.selectOptions(screen.getByLabelText("Changes before source"), "baseline");
-    await userEvent.click(screen.getByRole("button", { name: "Default" }));
-    await userEvent.click(screen.getByRole("button", { name: "Diff" }));
-    await waitFor(() => expect(screen.getByLabelText("Modified story")).toHaveTextContent("M"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show code changes" })).toHaveTextContent("Changes 2"));
+    const requestsBeforeReview = changedFileRequests;
+    await userEvent.click(screen.getByRole("button", { name: "Show code changes" }));
+    expect(screen.getByText("src/Button.tsx")).toBeInTheDocument();
+    expect(screen.getByLabelText("Code change M")).toHaveTextContent("M");
+    expect(screen.getByLabelText("Code change U")).toHaveTextContent("U");
+    await userEvent.click(screen.getByRole("button", { name: "Show code changes" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Primary" }));
+    await userEvent.click(screen.getByRole("button", { name: "Default" }));
+    const captureButton = screen.getByRole("button", { name: "Capture" });
+    expect(captureButton.previousElementSibling).toHaveTextContent("Annotate");
     await userEvent.click(screen.getByRole("button", { name: "Diff" }));
-    await waitFor(() => expect(screen.getByLabelText("New story")).toHaveTextContent("U"));
-    expect(screen.getByLabelText("Modified story")).toHaveTextContent("M");
+    await screen.findByText("12.00% changed · red pixels are different");
+    expect(captures).toBe(1);
+    expect(changedFileRequests).toBe(requestsBeforeReview);
   });
 });

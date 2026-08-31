@@ -26,7 +26,6 @@ type Capture = {
 };
 type Mode = "base" | "compare" | "side" | "diff";
 type ComparisonKind = "changes" | "branches";
-type StoryChange = "added" | "modified" | "removed" | "unchanged";
 type Commit = {
   sha: string;
   shortSha: string;
@@ -97,11 +96,6 @@ export function VisualWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [annotating, setAnnotating] = useState(false);
-  const [captureProgress, setCaptureProgress] = useState<{ done: number; total: number } | null>(null);
-  const [removedStories, setRemovedStories] = useState<StorybookStory[]>([]);
-  const [storyChanges, setStoryChanges] = useState<Record<string, StoryChange>>(
-    {},
-  );
   const [comparisonKind, setComparisonKind] =
     useState<ComparisonKind>("changes");
   const [changeReference, setChangeReference] = useState("HEAD");
@@ -125,7 +119,7 @@ export function VisualWorkspace({
       })
       .catch((reason) => setError(reason.message));
   }, [storybookEndpoint]);
-  useEffect(() => { request<Array<{ status: string; path: string }>>(`${storybookEndpoint}/changed-files?base=${encodeURIComponent(changeReference === "baseline" ? "HEAD" : changeReference)}`).then(setChangedFiles).catch(() => {}); }, [changeReference, storybookEndpoint]);
+  useEffect(() => { request<Array<{ status: string; path: string }>>(`${storybookEndpoint}/changed-files?base=${encodeURIComponent(changeReference === "baseline" ? "HEAD" : changeReference)}`).then(setChangedFiles).catch(() => {}); }, [changeReference, sourceId, storybookEndpoint]);
   useEffect(() => {
     request<Branches>(`${storybookEndpoint}/branches`)
       .then(setBranches)
@@ -144,8 +138,6 @@ export function VisualWorkspace({
     )
       .then((items) => {
         setStories(items);
-        setStoryChanges({});
-        setRemovedStories([]);
         setSelectedId((current) =>
           items.some((item) => item.id === current)
             ? current
@@ -166,9 +158,6 @@ export function VisualWorkspace({
       .then(setAnnotations)
       .catch(() => {});
   }, [reviewEndpoint, selectedId]);
-  useEffect(() => {
-    setStoryChanges({});
-  }, [changeReference, compareSourceId, comparisonKind]);
   const titleGroups = useMemo(() => {
     const counts = new Map<string, number>();
     stories.forEach((item) => {
@@ -191,9 +180,6 @@ export function VisualWorkspace({
         (item) =>
           titleFilter === "all" || item.title.split("/")[0] === titleFilter,
       )
-      .filter(
-        (item) => changeFilter === "all" || Boolean(storyChanges[item.id]),
-      )
       .filter((item) =>
         `${item.title} ${item.name} ${item.tags.join(" ")}`
           .toLowerCase()
@@ -203,7 +189,7 @@ export function VisualWorkspace({
         result.set(item.title, [...(result.get(item.title) ?? []), item]),
       );
     return [...result];
-  }, [changeFilter, query, stories, storyChanges, titleFilter]);
+  }, [query, stories, titleFilter]);
   const compareUrl =
     story && compareSource
       ? `${compareSource.url.replace(/\/$/, "")}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`
@@ -257,29 +243,12 @@ export function VisualWorkspace({
         changedPixels: value.diff.changedPixels,
       },
     });
-  const markAddedStories = async (before: Source) => {
-    const previous = await request<StorybookStory[]>(
-      `${storybookEndpoint}/stories?source=${encodeURIComponent(before.id)}`,
-    );
-    const previousIds = new Set(previous.map((item) => item.id));
-    setStoryChanges((current) => {
-      const next = { ...current };
-      stories.forEach((item) => {
-        if (!previousIds.has(item.id)) next[item.id] = "added";
-      });
-      return next;
-    });
-    setRemovedStories(previous.filter((item) => !stories.some((current) => current.id === item.id)));
-  };
   const prepareRevision = async (reference: string) => {
     const sha = reference === "HEAD" ? commits[0]?.sha : reference;
     const ready = sha
       ? sources.find((item) => item.id === `revision:${sha}`)
       : undefined;
-    if (ready) {
-      await markAddedStories(ready);
-      return ready;
-    }
+    if (ready) return ready;
     const created = await request<Source>(
       `${storybookEndpoint}/worktrees/start-revision`,
       {
@@ -292,7 +261,6 @@ export function VisualWorkspace({
       ...items.filter((item) => item.id !== created.id),
       created,
     ]);
-    await markAddedStories(created);
     return created;
   };
   const selectChangeReference = async (reference: string) => {
@@ -337,8 +305,6 @@ export function VisualWorkspace({
           : changeReference !== "baseline"
             ? await prepareRevision(changeReference)
             : undefined;
-      if (comparisonKind === "branches" && before)
-        await markAddedStories(before);
       const value = await request<Capture>(`${storybookEndpoint}/capture`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -351,60 +317,12 @@ export function VisualWorkspace({
         }),
       });
       setCapture(value);
-      setStoryChanges((items) => {
-        const next = { ...items };
-        if (value.initialBaseline) next[value.storyId] = "added";
-        else if (value.diff.changedPixels) next[value.storyId] = "modified";
-        else delete next[value.storyId];
-        return next;
-      });
       emitResult(value);
       setMode(nextMode);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
-    }
-  };
-  const captureAllStories = async () => {
-    if (!source || !stories.length) return;
-    setBusy(true);
-    setError("");
-    try {
-      const before =
-        comparisonKind === "branches"
-          ? compareSource
-          : changeReference !== "baseline"
-            ? await prepareRevision(changeReference)
-            : undefined;
-      setCaptureProgress({ done: 0, total: stories.length });
-      const results: Array<Capture | { error: string }> = [];
-      let cursor = 0;
-      const worker = async () => { while (true) { const index = cursor++; if (index >= stories.length) return; const item = stories[index]; try { results[index] = await request<Capture>(`${storybookEndpoint}/capture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId: source.id, storyId: item.id, branch: source.branch, baseBranch: before?.branch, baseSourceId: before?.id }) }); } catch (error) { results[index] = { error: error instanceof Error ? error.message : String(error) }; } setCaptureProgress((current) => current ? { ...current, done: current.done + 1 } : current); } };
-      await Promise.all(Array.from({ length: Math.min(4, stories.length) }, () => worker()));
-      setStoryChanges(() =>
-        Object.fromEntries(
-          results
-            .flatMap((result) =>
-              "storyId" in result
-                ? [
-                    [
-                      result.storyId,
-                      result.initialBaseline
-                        ? "added"
-                        : result.diff.changedPixels ? "modified" : "unchanged",
-                    ],
-                  ]
-                : [],
-            )
-            .filter(([, value]) => value),
-        ),
-      );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-      setCaptureProgress(null);
     }
   };
   const decide = async (status: "approved" | "rejected") => {
@@ -517,7 +435,6 @@ export function VisualWorkspace({
 
   return (
     <div className="review-workspace">
-      {captureProgress && <div className="capture-progress" role="status">Capturing stories… {captureProgress.done}/{captureProgress.total}</div>}
       {busy && (
         <div className="review-loading-scrim" aria-label="Updating story list">
           <span />
@@ -547,13 +464,6 @@ export function VisualWorkspace({
           ))}
         </select>
       </label>
-      <button
-        className="capture-all-stories"
-        onClick={() => void captureAllStories()}
-        disabled={busy || !stories.length}
-      >
-        Capture all stories
-      </button>
       <aside className="component-explorer">
         <header>
           <div>
@@ -562,11 +472,11 @@ export function VisualWorkspace({
           </div>
           <button
             className={`explorer-changes-toggle ${changeFilter === "changes" ? "active" : ""}`}
-            aria-label="Show changed stories"
+            aria-label="Show code changes"
             aria-pressed={changeFilter === "changes"}
             onClick={() => setChangeFilter((value) => value === "changes" ? "all" : "changes")}
           >
-            Changes <span>{Object.keys(storyChanges).length}</span>
+            Changes <span>{changedFiles.length}</span>
           </button>
         </header>
         <div className="preview-branch">
@@ -579,84 +489,33 @@ export function VisualWorkspace({
           </span>
           <b>{busy ? "Preparing…" : changedFiles.length ? `${changedFiles.length} files changed` : "Ready"}</b>
         </div>
-        <input
-          aria-label="Search stories"
-          placeholder="Search stories"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <nav
-          className="story-title-filters"
-          aria-label="Filter stories by title"
-        >
-          <button
-            className={titleFilter === "all" ? "active" : ""}
-            aria-pressed={titleFilter === "all"}
-            onClick={() => setTitleFilter("all")}
-          >
-            All <span>{stories.length}</span>
-          </button>
-          {titleGroups.map(([title, count]) => (
-            <button
-              className={titleFilter === title ? "active" : ""}
-              aria-pressed={titleFilter === title}
-              onClick={() => setTitleFilter(title)}
-              key={title}
-            >
-              {title} <span>{count}</span>
-            </button>
-          ))}
-        </nav>
-        <nav tabIndex={0} aria-label="Story list">
-          {grouped.map(([title, items]) => {
-            const [section, ...path] = title.split("/");
-            return (
-              <section key={title}>
-                <strong title={title}>
-                  <small>{section}</small>
-                  <span>{path.join(" / ") || section}</span>
-                </strong>
-                {items.map((item) => {
-                  const change = storyChanges[item.id];
-                  return (
-                    <button
-                      title={`${item.title} / ${item.name}${change === "added" ? " · New" : change === "modified" ? " · Modified" : ""}`}
-                      className={[
-                        item.id === selectedId ? "active" : "",
-                        change ?? "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      onClick={() => {
-                        setSelectedId(item.id);
-                        setCapture(null);
-                        setMode("compare");
-                      }}
-                      key={item.id}
-                    >
-                      <span>{item.name}</span>
-                      <span className="story-badges">
-                        {relatedStoryIds.includes(item.id) && <i>linked</i>}
-                        {change && (
-                          <b
-                            aria-label={
-                              change === "added"
-                                ? "New story"
-                                : "Modified story"
-                            }
-                          >
-                            {change === "added" ? "U" : "M"}
-                          </b>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </section>
-            );
-          })}
-          {removedStories.length > 0 && <section className="removed-stories"><strong><small>Removed</small><span>Stories no longer in After</span></strong>{removedStories.map((item) => <button className="removed" key={item.id} onClick={() => setSelectedId(item.id)}><span>{item.name}</span><span className="story-badges"><b aria-label="Removed story">R</b></span></button>)}</section>}
-        </nav>
+        {changeFilter === "changes" ? (
+          <nav className="code-change-list" aria-label="Code changes">
+            {changedFiles.length ? changedFiles.map((item) => {
+              const status = item.status.startsWith("A") ? "U" : item.status.startsWith("D") ? "R" : item.status[0] ?? "M";
+              return <div className={`code-change ${status.toLowerCase()}`} key={`${item.status}:${item.path}`}><b aria-label={`Code change ${status}`}>{status}</b><span title={item.path}>{item.path}</span></div>;
+            }) : <p>No code changes</p>}
+          </nav>
+        ) : (
+          <>
+            <input
+              aria-label="Search stories"
+              placeholder="Search stories"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <nav className="story-title-filters" aria-label="Filter stories by title">
+              <button className={titleFilter === "all" ? "active" : ""} aria-pressed={titleFilter === "all"} onClick={() => setTitleFilter("all")}>All <span>{stories.length}</span></button>
+              {titleGroups.map(([title, count]) => <button className={titleFilter === title ? "active" : ""} aria-pressed={titleFilter === title} onClick={() => setTitleFilter(title)} key={title}>{title} <span>{count}</span></button>)}
+            </nav>
+            <nav tabIndex={0} aria-label="Story list">
+              {grouped.map(([title, items]) => {
+                const [section, ...path] = title.split("/");
+                return <section key={title}><strong title={title}><small>{section}</small><span>{path.join(" / ") || section}</span></strong>{items.map((item) => <button title={`${item.title} / ${item.name}`} className={item.id === selectedId ? "active" : ""} onClick={() => { setSelectedId(item.id); setCapture(null); setMode("compare"); }} key={item.id}><span>{item.name}</span><span className="story-badges">{relatedStoryIds.includes(item.id) && <i>linked</i>}</span></button>)}</section>;
+              })}
+            </nav>
+          </>
+        )}
       </aside>
       <section className="review-stage">
         <header>
@@ -675,6 +534,12 @@ export function VisualWorkspace({
               disabled={!story}
             >
               {annotating ? "Click preview to pin" : "Annotate"}
+            </button>
+            <button
+              onClick={() => void captureStory("diff")}
+              disabled={busy || !story}
+            >
+              {busy ? "Capturing…" : "Capture"}
             </button>
           </div>
         </header>
