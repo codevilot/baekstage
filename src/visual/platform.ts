@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
@@ -177,17 +177,37 @@ export class WorktreeStorybookManager {
     if (!existsSync(path.join(directory, "package.json"))) throw new Error(`Storybook project was not found in ${directory}`);
     return directory;
   }
+  private async ensureDependencies(directory: string) {
+    const nodeModules = path.join(directory, "node_modules");
+    if (existsSync(path.join(nodeModules, ".bin", "storybook"))) return true;
+    const sourceDirectory = await this.projectDirectory(this.root);
+    const dependencyCandidates = [path.join(sourceDirectory, "node_modules"), path.join(this.root, "node_modules")];
+    const dependencyRoot = dependencyCandidates.find((candidate) => path.resolve(candidate) !== path.resolve(nodeModules) && existsSync(path.join(candidate, ".bin", "storybook")));
+    if (!dependencyRoot) return false;
+    const existing = await lstat(nodeModules).catch(() => undefined);
+    // Never replace a real dependency directory: it may contain branch-specific
+    // installs. A missing or stale symlink is safe to recreate from the primary
+    // checkout, which is how managed revision worktrees are prepared as well.
+    if (existing && !existing.isSymbolicLink()) return false;
+    if (existing) await unlink(nodeModules);
+    await symlink(dependencyRoot, nodeModules, "junction");
+    return existsSync(path.join(nodeModules, ".bin", "storybook"));
+  }
+  private async describeWorktree(worktreeRoot: string, branch: string, managed: boolean) {
+    const directory = await this.projectDirectory(worktreeRoot); const manager = await packageManager(directory);
+    return { directory, worktreeRoot, branch, packageManager: manager.name, dependenciesInstalled: await this.ensureDependencies(directory), managed };
+  }
   async branches() { const output = await command(this.root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]); return output.split("\n").filter(Boolean); }
   async commits(limit = 20) { const output = await command(this.root, ["log", `-${limit}`, "--pretty=format:%H%x09%h%x09%cI%x09%s"]); return output.split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }); }
   async create(branch: string) {
     if (!(await this.branches()).includes(branch)) throw new Error("Branch does not exist");
     const checkedOut = (await listGitWorktrees(this.root)).find((item) => item.branch === branch);
-    if (checkedOut) { const directory = await this.projectDirectory(checkedOut.directory); const manager = await packageManager(directory); return { directory, worktreeRoot: checkedOut.directory, branch, packageManager: manager.name, dependenciesInstalled: existsSync(path.join(directory, "node_modules")), managed: checkedOut.managed }; }
+    if (checkedOut) return this.describeWorktree(checkedOut.directory, branch, checkedOut.managed);
     const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", safe(branch));
     const resolved = path.resolve(worktreeRoot); const managedRoot = path.resolve(this.root, ".baekstage", "worktrees");
     if (!resolved.startsWith(`${managedRoot}${path.sep}`)) throw new Error("Unsafe worktree path");
     if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", worktreeRoot, branch]); }
-    const directory = await this.projectDirectory(worktreeRoot); const manager = await packageManager(directory); return { directory, worktreeRoot, branch, packageManager: manager.name, dependenciesInstalled: existsSync(path.join(directory, "node_modules")), managed: true };
+    return this.describeWorktree(worktreeRoot, branch, true);
   }
   async start(branch: string) {
     const worktree = await this.create(branch); return this.launch(`branch:${branch}`, worktree);
@@ -195,12 +215,8 @@ export class WorktreeStorybookManager {
   async startRevision(reference = "HEAD") {
     const sha = await command(this.root, ["rev-parse", "--verify", `${reference}^{commit}`]); const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "revisions", sha.slice(0, 12)); const managedRoot = path.join(this.root, ".baekstage", "worktrees", "revisions"); if (!path.resolve(worktreeRoot).startsWith(`${path.resolve(managedRoot)}${path.sep}`)) throw new Error("Unsafe revision worktree path");
     if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); }
-    const directory = await this.projectDirectory(worktreeRoot);
-    const nodeModules = path.join(directory, "node_modules");
-    const dependencyCandidates = [path.join(this.root, "tdp-web", "node_modules"), path.join(this.root, "node_modules")];
-    const dependencyRoot = dependencyCandidates.find((candidate) => existsSync(path.join(candidate, ".bin", "storybook")));
-    if (dependencyRoot && !existsSync(path.join(nodeModules, ".bin", "storybook"))) { if (existsSync(nodeModules)) await unlink(nodeModules); await symlink(dependencyRoot, nodeModules, "junction"); }
-    const manager = await packageManager(directory); const result = await this.launch(`revision:${sha}`, { directory, worktreeRoot, branch: `${reference}@${sha.slice(0, 7)}`, packageManager: manager.name, dependenciesInstalled: existsSync(path.join(directory, "node_modules")), managed: true }); return { ...result, sha, reference };
+    const worktree = await this.describeWorktree(worktreeRoot, `${reference}@${sha.slice(0, 7)}`, true);
+    const result = await this.launch(`revision:${sha}`, worktree); return { ...result, sha, reference };
   }
   private async launch(key: string, worktree: { directory: string; worktreeRoot?: string; branch: string; packageManager: string; dependenciesInstalled: boolean; managed?: boolean }) {
     const existing = this.processes.get(key); if (existing && existing.child.exitCode === null) return { ...worktree, url: existing.url, port: existing.port };

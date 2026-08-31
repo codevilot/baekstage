@@ -1,5 +1,8 @@
 # Changelog
 
+- Allow managed web servers and services to use an automatically allocated internal port, and avoid duplicate binds when an existing HTTP server returns a 5xx response.
+- Prepare branch Storybook worktrees with the primary checkout's dependencies, matching revision previews.
+
 ## 0.3.9
 
 - Add sidebar batch execution with missing-only, rerun-all, and per-scenario confirmation policies.

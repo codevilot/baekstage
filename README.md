@@ -30,8 +30,9 @@ export default defineConfig({
   suite: { name: "Checkout tests", scenarios: [] },
   playwright: { projectRoot: "." },
   webServer: {
-    command: "npm run dev",
-    url: "http://127.0.0.1:3000",
+    port: "auto",
+    command: "npm run dev -- --port {port}",
+    url: "http://127.0.0.1:{port}",
     reuseExistingServer: true,
   },
 });
@@ -78,6 +79,8 @@ review its node-scoped screenshots and Trace snapshots.
 The optional `webServer` setting starts the app when needed, reuses an existing
 healthy process, and stops processes started by Baekstage. Keep this setting in
 Baekstage rather than duplicating it in the Playwright config.
+Use `port: "auto"` with `{port}` in the command and URL to avoid app-port conflicts;
+the browser-facing Baekstage `server.port` can remain fixed.
 Use **Catalog** to search registered OpenAPI operations, inspect schemas, find linked
 scenarios, and execute linked API nodes through the protected local proxy.
 Expected error cases such as `404` or `409` can pass when their configured response

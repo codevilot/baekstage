@@ -19,6 +19,26 @@ describe("configured web server", () => {
     expect(server.listening).toBe(true);
   });
 
+  it("reuses an existing server even when it currently returns 500", async () => {
+    server = createServer((_request, response) => { response.writeHead(500); response.end("warming up"); });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const address = server.address(); const port = typeof address === "object" && address ? address.port : 0;
+    const running = await startConfiguredWebServer({ command: "exit 9", url: `http://127.0.0.1:${port}` }, process.cwd());
+    expect(running.reused).toBe(true);
+  });
+
+  it("allocates an internal port and replaces the port placeholder", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-auto-port-"));
+    const script = path.join(root, "server.cjs");
+    await writeFile(script, 'require("node:http").createServer((_q,r)=>r.end([process.argv[2],process.env.CUSTOM_PORT,process.env.BAEKSTAGE_PORT].join(":"))).listen(Number(process.argv[2]),"127.0.0.1")');
+    const running = await startConfiguredWebServer({ port: "auto", command: `${JSON.stringify(process.execPath)} ${JSON.stringify(script)} {port}`, url: "http://127.0.0.1:{port}", env: { CUSTOM_PORT: "{port}" }, timeoutMs: 5_000 }, root);
+    try {
+      expect(running.port).toBeGreaterThan(0);
+      expect(running.url).toBe(`http://127.0.0.1:${running.port}`);
+      expect(await fetch(running.url!).then((response) => response.text())).toBe(`${running.port}:${running.port}:${running.port}`);
+    } finally { await running.stop(); await rm(root, { recursive: true }); }
+  });
+
   it("reports command output when startup exits", async () => {
     await expect(startConfiguredWebServer({ command: 'node -e "console.error(\'missing app dependency\');process.exit(1)"', url: "http://127.0.0.1:1", timeoutMs: 2_000 }, process.cwd())).rejects.toThrow(/missing app dependency/);
   });

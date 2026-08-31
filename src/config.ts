@@ -4,6 +4,8 @@ export type OpenApiSourceConfig = { id: string; title: string; file: string; bas
 export type StorybookSourceConfig = { id: string; url: string; title?: string; branch?: string };
 export type WebServerConfig = {
   command: string;
+  /** Use an available loopback port and replace `{port}` in command, url, and env values. */
+  port?: "auto";
   url: string;
   cwd?: string;
   env?: Record<string, string>;

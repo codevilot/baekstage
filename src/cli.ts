@@ -108,18 +108,24 @@ async function start() {
   if (config.validation?.strictOpenApiResponses && responseWarnings.length) throw new Error(responseWarnings.map((item) => item.message).join("\n"));
   catalog.errors?.push(...responseWarnings);
   const fileEnv = await configEnvironment(cwd, config.envFile);
+  const runtimeEnv = { ...fileEnv };
   for (const [name, service] of Object.entries(config.services ?? {})) {
-    const running = await startConfiguredWebServer({ ...service, env: { ...fileEnv, ...service.env } }, cwd);
+    const running = await startConfiguredWebServer({ ...service, env: { ...runtimeEnv, ...service.env } }, cwd);
     addCleanup(running.stop);
-    process.stdout.write(`\n  Service ${name} ${running.reused ? "reused" : "ready"} at ${service.url}\n`);
+    const envName = name.replace(/[^A-Za-z0-9]/g, "_").toUpperCase();
+    if (running.url) runtimeEnv[`BAEKSTAGE_SERVICE_${envName}_URL`] = running.url;
+    if (running.port) runtimeEnv[`BAEKSTAGE_SERVICE_${envName}_PORT`] = String(running.port);
+    process.stdout.write(`\n  Service ${name} ${running.reused ? "reused" : "ready"} at ${running.url}\n`);
   }
-  const appServer = await startConfiguredWebServer(config.webServer ? { ...config.webServer, env: { ...fileEnv, ...config.webServer.env } } : undefined, cwd);
+  const appServer = await startConfiguredWebServer(config.webServer ? { ...config.webServer, env: { ...runtimeEnv, ...config.webServer.env } } : undefined, cwd);
   addCleanup(appServer.stop);
-  if (config.webServer) process.stdout.write(`\n  App server ${appServer.reused ? "reused" : "ready"} at ${config.webServer.url}\n`);
+  if (appServer.url) runtimeEnv.BAEKSTAGE_WEB_SERVER_URL = appServer.url;
+  if (appServer.port) runtimeEnv.BAEKSTAGE_WEB_SERVER_PORT = String(appServer.port);
+  if (config.webServer) process.stdout.write(`\n  App server ${appServer.reused ? "reused" : "ready"} at ${appServer.url}\n`);
   let root: string | undefined;
   try {
   root = await standaloneRoot(config, cwd); addCleanup(() => rm(root!, { recursive: true, force: true })); const plugins = [];
-  if (config.playwright?.projectRoot || config.sources?.openapi?.length || config.sources?.storybook?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; plugins.push(baekstagePlugin({ workspaceRoot: cwd, projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...fileEnv, ...config.playwright?.env }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite, storybookSources: config.sources?.storybook, visual: config.visual })); }
+  if (config.playwright?.projectRoot || config.sources?.openapi?.length || config.sources?.storybook?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; const playwrightEnv = Object.fromEntries(Object.entries(config.playwright?.env ?? {}).map(([key, value]) => [key, appServer.port ? value.replaceAll("{port}", String(appServer.port)) : value])); plugins.push(baekstagePlugin({ workspaceRoot: cwd, projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...runtimeEnv, ...playwrightEnv }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite, storybookSources: config.sources?.storybook, visual: config.visual })); }
   plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations", storybookEndpoint: "/api/storybook", reviewEndpoint: "/api/reviews" } })}` : null; } });
   const server = await createServer({
     root,

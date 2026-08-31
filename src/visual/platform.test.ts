@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { StorybookVisualPlatform } from "./platform";
+import { StorybookVisualPlatform, WorktreeStorybookManager } from "./platform";
 
 describe("Storybook visual platform", () => {
   let root = ""; let server: Server; let url = "";
@@ -32,4 +32,30 @@ describe("Storybook visual platform", () => {
     await platform.approve(stories[0].id, changed.build.id, "feature/login");
     const approvedBytes = await readFile(path.join(root, ".baekstage", "baselines", "feature_2Flogin", "button--primary.png")); expect(approvedBytes.length).toBeGreaterThan(0);
   }, 30_000);
+});
+
+describe("worktree Storybook manager", () => {
+  test("links dependencies into an existing branch worktree", async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), "baekstage-worktree-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: repository, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+      execFileSync("git", ["config", "user.name", "Baekstage Test"], { cwd: repository });
+      await mkdir(path.join(repository, "tdp-web", ".storybook"), { recursive: true });
+      await writeFile(path.join(repository, "tdp-web", "package.json"), JSON.stringify({ scripts: { storybook: "storybook dev" } }));
+      await writeFile(path.join(repository, "tdp-web", ".storybook", "main.ts"), "export default {};");
+      execFileSync("git", ["add", "."], { cwd: repository }); execFileSync("git", ["commit", "-m", "initial"], { cwd: repository, stdio: "ignore" }); execFileSync("git", ["branch", "feature"], { cwd: repository });
+      const dependencyRoot = path.join(repository, "tdp-web", "node_modules");
+      await mkdir(path.join(dependencyRoot, ".bin"), { recursive: true }); await writeFile(path.join(dependencyRoot, ".bin", "storybook"), "");
+      const worktreeRoot = path.join(repository, ".baekstage", "worktrees", "feature");
+      await mkdir(path.dirname(worktreeRoot), { recursive: true }); execFileSync("git", ["worktree", "add", worktreeRoot, "feature"], { cwd: repository, stdio: "ignore" });
+
+      const created = await new WorktreeStorybookManager(repository).create("feature");
+
+      const linked = path.join(worktreeRoot, "tdp-web", "node_modules");
+      expect(created.dependenciesInstalled).toBe(true);
+      expect((await lstat(linked)).isSymbolicLink()).toBe(true);
+      expect(await readlink(linked)).toBe(dependencyRoot);
+    } finally { await rm(repository, { recursive: true, force: true }); }
+  });
 });

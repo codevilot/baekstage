@@ -30,11 +30,12 @@ export default defineConfig({
     projectRoot: "./web-app",
     command: "npm",
     commandArgs: ["exec", "--", "playwright", "test"],
-    env: { CI: "1" },
+    env: { CI: "1", PLAYWRIGHT_PORT: "{port}" },
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://127.0.0.1:3000",
+    port: "auto",
+    command: "npm run dev -- --hostname 127.0.0.1 --port {port}",
+    url: "http://127.0.0.1:{port}",
     reuseExistingServer: true,
     timeoutMs: 120_000,
   },
@@ -77,6 +78,15 @@ order. Put `.env.baekstage` in `.gitignore` when it contains credentials.
 reuses a healthy server by default, otherwise starts `command`, waits for `url`, and
 stops the process when Baekstage exits. `cwd` is relative to the directory where the
 CLI is run. Command output is preserved when startup fails.
+
+Set `port: "auto"` to keep managed app and service ports internal and conflict-free.
+Baekstage replaces `{port}` in `command`, `url`, and `env` values, and also provides
+`PORT` and `BAEKSTAGE_PORT` to that process. The resolved app address is passed to
+Playwright as `BAEKSTAGE_WEB_SERVER_URL` and `BAEKSTAGE_WEB_SERVER_PORT`. Managed
+services similarly expose `BAEKSTAGE_SERVICE_<NAME>_URL` and `_PORT`. Keep only the
+Baekstage viewer's `server.port` fixed when one stable browser-facing port is needed.
+`{port}` in `playwright.env` is also replaced with the resolved app-server port for
+test suites that already use a project-specific variable such as `PLAYWRIGHT_PORT`.
 
 Use this as the single owner of the application process. Remove `webServer` from the
 Playwright config used by Baekstage so Playwright does not try to start the same app a
