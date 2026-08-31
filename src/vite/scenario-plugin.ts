@@ -145,6 +145,8 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
       try {
         const url = new URL(req.url ?? "/", "http://baekstage.local");
         if (req.method === "GET" && url.pathname === "/sources") return json(res, 200, await visualPlatform.sourceList());
+        if (req.method === "GET" && url.pathname === "/commits") return json(res, 200, await visualPlatform.recentCommits());
+        if (req.method === "GET" && url.pathname === "/changed-files") return json(res, 200, await visualPlatform.changedFiles(url.searchParams.get("base") ?? "HEAD"));
         if (req.method === "GET" && url.pathname === "/stories") return json(res, 200, await visualPlatform.stories(url.searchParams.get("source") ?? ""));
         if (req.method === "GET" && url.pathname === "/branches") return json(res, 200, { branches: await worktreeManager.branches(), worktrees: await listGitWorktrees(workspaceRoot) });
         if (req.method === "POST" && url.pathname === "/worktrees") return json(res, 201, await worktreeManager.create((await requestBody(req)).branch));
@@ -153,6 +155,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         if (req.method === "POST" && url.pathname === "/worktrees/stop") { const input = await requestBody(req); await worktreeManager.stop(input.branch); return json(res, 200, { stopped: true }); }
         if (req.method === "DELETE" && url.pathname === "/worktrees") return json(res, 200, await worktreeManager.remove((await requestBody(req)).branch));
         if (req.method === "POST" && url.pathname === "/capture") return json(res, 200, await visualPlatform.capture(await requestBody(req)));
+        if (req.method === "POST" && url.pathname === "/capture-many") { const input = await requestBody(req); if (!Array.isArray(input.items)) return json(res, 400, { error: "items must be an array" }); return json(res, 200, await visualPlatform.captureMany(input.items, input.concurrency ?? 4)); }
         return json(res, 405, { error: "Method not allowed" });
       } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
     });

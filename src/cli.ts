@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import type { BaekstageConfig } from "./config";
 import { baekstagePlugin } from "./vite/scenario-plugin";
@@ -84,8 +85,10 @@ async function configEnvironment(cwd: string, file?: string) {
 async function standaloneRoot(config: BaekstageConfig, cwd: string) {
   const runtimeRoot = path.join(cwd, ".baekstage", "runtime"); await mkdir(runtimeRoot, { recursive: true });
   const root = await mkdtemp(path.join(runtimeRoot, "cli-"));
+  const viewerEntry = fileURLToPath(new URL(/* @vite-ignore */ "./baekstage.js", import.meta.url));
+  const stylesheet = fileURLToPath(new URL(/* @vite-ignore */ "./baekstage.css", import.meta.url));
   await writeFile(path.join(root, "index.html"), '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Baekstage</title><style>html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script type="module" src="/main.js"></script></body></html>');
-  await writeFile(path.join(root, "main.js"), `import React from "react";import{createRoot}from "react-dom/client";import{ScenarioViewer}from "baekstage";import "baekstage/style.css";import config from "virtual:baekstage-config";createRoot(document.getElementById("root")).render(React.createElement(ScenarioViewer,{suite:config.suite,catalog:config.catalog,options:config.options}));`);
+  await writeFile(path.join(root, "main.js"), `import React from "react";import{createRoot}from "react-dom/client";import{ScenarioViewer}from ${JSON.stringify(viewerEntry)};import ${JSON.stringify(stylesheet)};import config from "virtual:baekstage-config";createRoot(document.getElementById("root")).render(React.createElement(ScenarioViewer,{suite:config.suite,catalog:config.catalog,options:config.options}));`);
   return root;
 }
 

@@ -1,7 +1,7 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { copyFile, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
 import pixelmatch from "pixelmatch";
@@ -13,6 +13,7 @@ import { FileMetadataStore, type MetadataStore } from "./storage";
 type CaptureOptions = { viewport?: { width: number; height: number }; deviceScaleFactor?: number; locale?: string; timezoneId?: string; threshold?: number };
 type CaptureInput = { sourceId: string; storyId: string; branch?: string; baseBranch?: string; baseSourceId?: string };
 type GitState = { repository: string; branch: string; commitSha?: string; workingTreeDirty: boolean; baseCommitSha?: string };
+export type RecentCommit = { sha: string; shortSha: string; committedAt: string; subject: string };
 const safe = (value: string) => encodeURIComponent(value).replaceAll("%", "_");
 
 function command(cwd: string, args: string[]) {
@@ -39,6 +40,14 @@ export class StorybookVisualPlatform {
     const state = await gitState(this.root); return this.sources.map((source) => ({ ...source, branch: source.branch ?? state.branch, url: source.url.replace(/\/$/, "") }));
   }
   addSource(source: StorybookSourceConfig) { const index = this.sources.findIndex((item) => item.id === source.id); if (index >= 0) this.sources[index] = source; else this.sources.push(source); }
+  async recentCommits(limit = 8): Promise<RecentCommit[]> {
+    const output = await command(this.root, ["log", `-${Math.max(1, Math.min(limit, 20))}`, "--format=%H%x09%h%x09%cI%x09%s"]).catch(() => "");
+    return output.split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; });
+  }
+  async changedFiles(base = "HEAD"): Promise<Array<{ status: string; path: string }>> {
+    const output = await command(this.root, ["diff", "--name-status", base]).catch(() => "");
+    return output.split("\n").filter(Boolean).map((line) => { const [status, ...parts] = line.split("\t"); return { status, path: parts.join("\t") }; });
+  }
 
   async stories(sourceId: string): Promise<StorybookStory[]> {
     const source = this.sources.find((item) => item.id === sourceId);
@@ -53,7 +62,7 @@ export class StorybookVisualPlatform {
     }).filter((story) => !!story.id).sort((left, right) => `${left.title}/${left.name}`.localeCompare(`${right.title}/${right.name}`));
   }
 
-  async capture(input: CaptureInput) {
+  async capture(input: CaptureInput, sharedBrowser?: any) {
     const source = this.sources.find((item) => item.id === input.sourceId);
     if (!source) throw new Error(`Unknown Storybook source: ${input.sourceId}`);
     const state = await gitState(this.root, input.baseBranch);
@@ -62,11 +71,11 @@ export class StorybookVisualPlatform {
     await mkdir(storyDirectory, { recursive: true });
     const current = path.join(storyDirectory, "current.png"); const baseline = path.join(storyDirectory, "baseline.png"); const diff = path.join(storyDirectory, "diff.png");
     const playwright = await import("@playwright/test").catch(() => { throw new Error("Visual capture requires @playwright/test in the project"); }); const { chromium } = playwright;
-    const browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser ?? await chromium.launch({ headless: true });
     try {
       const screenshot = async (target: StorybookSourceConfig, destination: string) => { const context = await browser.newContext({ viewport: this.captureOptions.viewport ?? { width: 1280, height: 720 }, deviceScaleFactor: this.captureOptions.deviceScaleFactor ?? 1, locale: this.captureOptions.locale ?? "en-US", timezoneId: this.captureOptions.timezoneId ?? "UTC" }); try { const page = await context.newPage(); await page.goto(`${target.url.replace(/\/$/, "")}/iframe.html?id=${encodeURIComponent(input.storyId)}&viewMode=story`, { waitUntil: "networkidle" }); await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}" }); await page.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].filter((image) => !image.complete).map((image) => new Promise<void>((done) => { image.addEventListener("load", () => done(), { once: true }); image.addEventListener("error", () => done(), { once: true }); }))); }); await page.screenshot({ path: destination, fullPage: true, animations: "disabled" }); } finally { await context.close(); } };
       await screenshot(source, current); const baseSource = input.baseSourceId ? this.sources.find((item) => item.id === input.baseSourceId) : undefined; if (input.baseSourceId && !baseSource) throw new Error(`Unknown before Storybook source: ${input.baseSourceId}`); if (baseSource) await screenshot(baseSource, baseline);
-    } finally { await browser.close(); }
+    } finally { if (!sharedBrowser) await browser.close(); }
     let initialBaseline = false;
     if (!input.baseSourceId) {
       const baselineRoot = path.join(this.root, ".baekstage", "baselines", safe(build.branch)); const baselineSource = path.join(baselineRoot, `${safe(input.storyId)}.png`); await mkdir(baselineRoot, { recursive: true });
@@ -78,6 +87,16 @@ export class StorybookVisualPlatform {
     await writeFile(path.join(this.root, ".baekstage", "builds", build.id, "metadata.json"), JSON.stringify(build, null, 2));
     const asset = (name: string) => `/baekstage-assets/builds/${build.id}/stories/${safe(input.storyId)}/${name}.png`;
     return { build, storyId: input.storyId, initialBaseline, status: comparison.changedPixels ? "changed" : "passed", diff: { ...comparison, baselineImage: asset("baseline"), currentImage: asset("current"), diffImage: asset("diff") } satisfies VisualDiff };
+  }
+
+  async captureMany(inputs: CaptureInput[], concurrency = 4) {
+    const playwright = await import("@playwright/test").catch(() => { throw new Error("Visual capture requires @playwright/test in the project"); });
+    const browser = await playwright.chromium.launch({ headless: true });
+    const results: Array<Awaited<ReturnType<StorybookVisualPlatform["capture"]>> | { error: string }> = new Array(inputs.length);
+    let cursor = 0;
+    const worker = async () => { while (true) { const index = cursor++; if (index >= inputs.length) return; try { results[index] = await this.capture(inputs[index], browser); } catch (error) { results[index] = { error: error instanceof Error ? error.message : String(error) }; } } };
+    try { await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, inputs.length || 1)) }, worker)); } finally { await browser.close(); }
+    return results;
   }
 
   async approve(storyId: string, buildId: string, branch: string, author?: string) {
@@ -136,10 +155,12 @@ async function availablePort(start = 6006) {
 }
 
 async function packageManager(directory: string) {
-  if (existsSync(path.join(directory, "pnpm-lock.yaml"))) return { name: "pnpm", command: "pnpm", args: ["storybook"] };
-  if (existsSync(path.join(directory, "yarn.lock"))) return { name: "yarn", command: "yarn", args: ["storybook"] };
-  if (existsSync(path.join(directory, "bun.lockb")) || existsSync(path.join(directory, "bun.lock"))) return { name: "bun", command: "bun", args: ["run", "storybook"] };
-  return { name: "npm", command: "npm", args: ["run", "storybook", "--"] };
+  let hasStorybookScript = false;
+  try { hasStorybookScript = typeof JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8")).scripts?.storybook === "string"; } catch {}
+  if (existsSync(path.join(directory, "pnpm-lock.yaml"))) return hasStorybookScript ? { name: "pnpm", command: "pnpm", args: ["storybook"] } : { name: "pnpm", command: "pnpm", args: ["exec", "storybook", "dev"] };
+  if (existsSync(path.join(directory, "yarn.lock"))) return hasStorybookScript ? { name: "yarn", command: "yarn", args: ["storybook"] } : { name: "yarn", command: "yarn", args: ["exec", "storybook", "dev"] };
+  if (existsSync(path.join(directory, "bun.lockb")) || existsSync(path.join(directory, "bun.lock"))) return hasStorybookScript ? { name: "bun", command: "bun", args: ["run", "storybook"] } : { name: "bun", command: "bun", args: ["x", "storybook", "dev"] };
+  return hasStorybookScript ? { name: "npm", command: "npm", args: ["run", "storybook", "--"] } : { name: "npm", command: "npm", args: ["exec", "--", "storybook", "dev"] };
 }
 
 export class WorktreeStorybookManager {
@@ -148,11 +169,16 @@ export class WorktreeStorybookManager {
   private async projectDirectory(worktreeRoot: string) {
     const repositoryRoot = await command(this.root, ["rev-parse", "--show-toplevel"]);
     const projectRelativePath = path.relative(repositoryRoot, this.root);
-    const directory = projectRelativePath ? path.join(worktreeRoot, projectRelativePath) : worktreeRoot;
+    let directory = projectRelativePath ? path.join(worktreeRoot, projectRelativePath) : worktreeRoot;
+    // Monorepos may run Baekstage from the repository root while Storybook lives
+    // in a child app (for example `tdp-web/.storybook`). Resolve that app in the
+    // worktree instead of launching Storybook from the repository root.
+    if (!existsSync(path.join(directory, ".storybook")) && existsSync(path.join(directory, "tdp-web", "package.json"))) directory = path.join(directory, "tdp-web");
     if (!existsSync(path.join(directory, "package.json"))) throw new Error(`Storybook project was not found in ${directory}`);
     return directory;
   }
   async branches() { const output = await command(this.root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]); return output.split("\n").filter(Boolean); }
+  async commits(limit = 20) { const output = await command(this.root, ["log", `-${limit}`, "--pretty=format:%H%x09%h%x09%cI%x09%s"]); return output.split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }); }
   async create(branch: string) {
     if (!(await this.branches()).includes(branch)) throw new Error("Branch does not exist");
     const checkedOut = (await listGitWorktrees(this.root)).find((item) => item.branch === branch);
@@ -170,7 +196,10 @@ export class WorktreeStorybookManager {
     const sha = await command(this.root, ["rev-parse", "--verify", `${reference}^{commit}`]); const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "revisions", sha.slice(0, 12)); const managedRoot = path.join(this.root, ".baekstage", "worktrees", "revisions"); if (!path.resolve(worktreeRoot).startsWith(`${path.resolve(managedRoot)}${path.sep}`)) throw new Error("Unsafe revision worktree path");
     if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); }
     const directory = await this.projectDirectory(worktreeRoot);
-    if (!existsSync(path.join(directory, "node_modules")) && existsSync(path.join(this.root, "node_modules"))) await symlink(path.join(this.root, "node_modules"), path.join(directory, "node_modules"), "junction");
+    const nodeModules = path.join(directory, "node_modules");
+    const dependencyCandidates = [path.join(this.root, "tdp-web", "node_modules"), path.join(this.root, "node_modules")];
+    const dependencyRoot = dependencyCandidates.find((candidate) => existsSync(path.join(candidate, ".bin", "storybook")));
+    if (dependencyRoot && !existsSync(path.join(nodeModules, ".bin", "storybook"))) { if (existsSync(nodeModules)) await unlink(nodeModules); await symlink(dependencyRoot, nodeModules, "junction"); }
     const manager = await packageManager(directory); const result = await this.launch(`revision:${sha}`, { directory, worktreeRoot, branch: `${reference}@${sha.slice(0, 7)}`, packageManager: manager.name, dependenciesInstalled: existsSync(path.join(directory, "node_modules")), managed: true }); return { ...result, sha, reference };
   }
   private async launch(key: string, worktree: { directory: string; worktreeRoot?: string; branch: string; packageManager: string; dependenciesInstalled: boolean; managed?: boolean }) {
