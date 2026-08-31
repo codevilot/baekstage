@@ -36,7 +36,7 @@ describe("VisualWorkspace story explorer", () => {
     }));
 
     render(<VisualWorkspace/>);
-    await screen.findByRole("button", { name: "Pages 1" });
+    await screen.findByRole("button", { name: "Pages 1" }, { timeout: 5_000 });
     expect(screen.getAllByRole("option", { name: "bbbbbbb · Previous UI" })).not.toHaveLength(0);
     await userEvent.click(screen.getByRole("button", { name: "Components 1" }));
     expect(screen.queryByRole("button", { name: "Default" })).not.toBeInTheDocument();

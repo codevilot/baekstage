@@ -167,8 +167,7 @@ export class WorktreeStorybookManager {
   private readonly processes = new Map<string, { child: ChildProcess; url: string; port: number }>();
   constructor(private readonly root: string) {}
   private async projectDirectory(worktreeRoot: string) {
-    const repositoryRoot = await command(this.root, ["rev-parse", "--show-toplevel"]);
-    const projectRelativePath = path.relative(repositoryRoot, this.root);
+    const projectRelativePath = (await command(this.root, ["rev-parse", "--show-prefix"])).replace(/\/$/, "");
     let directory = projectRelativePath ? path.join(worktreeRoot, projectRelativePath) : worktreeRoot;
     // Monorepos may run Baekstage from the repository root while Storybook lives
     // in a child app (for example `tdp-web/.storybook`). Resolve that app in the
