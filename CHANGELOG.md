@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.8
+## 0.3.9
 
 - Add sidebar batch execution with missing-only, rerun-all, and per-scenario confirmation policies.
 - Show batch progress, failures, skipped scenarios, and a stop action.
