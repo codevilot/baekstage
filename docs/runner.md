@@ -45,7 +45,7 @@ GET /api/catalog
 POST /api/operations/run
 Content-Type: application/json
 
-{"sourceId":"task-runner","operationId":"openapi:task-runner:POST:/jobs/{id}/retry","scenarioId":"retry","nodeId":"retry-request","path":{"id":"abc"},"headers":{"Authorization":"Bearer …"}}
+{"sourceId":"task-runner","operationId":"openapi:task-runner:POST:/exports/{id}/retry","scenarioId":"retry","nodeId":"retry-request","path":{"id":"demo"},"headers":{"Authorization":"Bearer …"}}
 ```
 
 The server ignores arbitrary URLs because none are accepted in this contract. See

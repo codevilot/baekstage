@@ -11,11 +11,11 @@ const graph = defineScenario({
   nodes: [
     { id: "fixture", title: "Fixture", kind: "fixture" },
     { id: "admin", title: "Admin screen", kind: "screen", facets: { role: ["Admin"] } },
-    { id: "operator", title: "Operator screen", kind: "screen", facets: { role: ["Operator"] } },
+    { id: "customer", title: "Customer screen", kind: "screen", facets: { role: ["Customer"] } },
   ],
   edges: [
     { id: "a", source: "fixture", target: "admin" },
-    { id: "b", source: "fixture", target: "operator" },
+    { id: "b", source: "fixture", target: "customer" },
   ],
 });
 
@@ -30,9 +30,9 @@ describe("scenario graph", () => {
     await markElementScreenshot(
       { screenshot: async () => new Uint8Array([1, 2, 3]) },
       { attach: async (name) => { calls.push(name); } },
-      { label: "Metric card", nodeId: "metric-after", target: "[data-testid=metric]" },
+      { label: "Order total", nodeId: "total-after", target: "[data-testid=order-total]" },
     );
-    expect(readScreenshotMark(calls[0])).toMatchObject({ nodeId: "metric-after", target: "[data-testid=metric]" });
+    expect(readScreenshotMark(calls[0])).toMatchObject({ nodeId: "total-after", target: "[data-testid=order-total]" });
   });
 
   it("does not attach unmarked screenshots to a root edge", () => {
@@ -42,19 +42,19 @@ describe("scenario graph", () => {
   });
 
   it("keeps same-named nodes separated by scenario id", () => {
-    const shot = { label: "operator", url: "/operator.png", type: "screenshot" as const, scenarioId: "lifecycle-2", nodeId: "operator" };
-    const lifecycle2 = { id: "lifecycle-2:projection-operator", source: "lifecycle-2:projection", target: "lifecycle-2:operator" };
-    const lifecycle3 = { id: "lifecycle-3:projection-operator", source: "lifecycle-3:projection", target: "lifecycle-3:operator" };
+    const shot = { label: "customer", url: "/customer.png", type: "screenshot" as const, scenarioId: "lifecycle-2", nodeId: "customer" };
+    const lifecycle2 = { id: "lifecycle-2:projection-customer", source: "lifecycle-2:projection", target: "lifecycle-2:customer" };
+    const lifecycle3 = { id: "lifecycle-3:projection-customer", source: "lifecycle-3:projection", target: "lifecycle-3:customer" };
     expect(artifactMatchesEdge(shot, lifecycle2, lifecycle2.target)).toBe(true);
     expect(artifactMatchesEdge(shot, lifecycle3, lifecycle3.target)).toBe(false);
   });
 
   it("opens only screenshots directly marked for the selected node", () => {
     const shots = [
-      { label: "before", url: "/before.png", type: "screenshot" as const, nodeId: "metric-before" },
-      { label: "after", url: "/after.png", type: "screenshot" as const, nodeId: "metric-after" },
+      { label: "before", url: "/before.png", type: "screenshot" as const, nodeId: "total-before" },
+      { label: "after", url: "/after.png", type: "screenshot" as const, nodeId: "total-after" },
     ];
-    expect(screenshotsForNode("metric-before", shots).map((shot) => shot.label)).toEqual(["before"]);
+    expect(screenshotsForNode("total-before", shots).map((shot) => shot.label)).toEqual(["before"]);
   });
   it("removes dangling edges when arbitrary facets are filtered", () => {
     const visible = filterScenario(graph, { role: new Set(["Admin"]) });

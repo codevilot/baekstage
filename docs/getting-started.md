@@ -77,9 +77,9 @@ services, routes, or request IDs can be represented without changing the library
 
 - Static mode needs only a `ScenarioSuite`. Graph navigation works without a server.
 - Connected mode uses `runnerEndpoint` to fetch results and start Playwright runs.
-- The repository demo uses an internal Metric Playwright fixture when the default Data
-  Foundry checkout is absent. Set `PLAYWRIGHT_PROJECT_ROOT=/absolute/path/to/web-app`
-  before `npm run dev` to run the real scenario sources instead.
+- The repository demo contains only neutral, generated checkout fixtures. Connect a
+  private project through its own `baekstage.config.ts`; project paths and scenarios
+  do not need to be committed to this repository.
 - Trace viewing uses `traceViewerEndpoint`; it defaults to `/trace-viewer`.
 
 The included Vite adapter implements both endpoints in development. Other frameworks

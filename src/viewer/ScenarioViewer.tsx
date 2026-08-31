@@ -17,15 +17,13 @@ import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { useApiRun } from "../hooks/api/use-api-run";
 import { normalizeApiCases } from "../core/api-cases";
 import { useSuiteRun, type SuiteRunPolicy } from "../hooks/scenario/use-suite-run";
+import { VisualWorkspace } from "./visual/VisualWorkspace";
+
+type WorkspaceView = "map" | "scenario" | "catalog" | "review";
 
 function scenarioName(title: string) {
   return title.replace(/^\d+\.\s*/, "");
 }
-
-const conceptCopy = {
-  ko: [{ term: "Scenario", description: "검증할 하나의 사용자 흐름" }, { term: "Act", description: "Setup·UI·API 같은 업무 구간" }, { term: "Step", description: "흐름 안의 개별 행동 또는 결과" }, { term: "Result", description: "저장된 화면·요청·응답·assertion 결과" }],
-  en: [{ term: "Scenario", description: "One user flow to verify" }, { term: "Act", description: "A phase such as Setup, UI, or API" }, { term: "Step", description: "An individual action or outcome" }, { term: "Result", description: "Saved screens, requests, responses, and assertions" }],
-} as const;
 
 function groupScenarioRuns(suite: ScenarioSuite): ScenarioSuite {
   const groups = new Map<string, ScenarioSuite["scenarios"]>();
@@ -56,10 +54,8 @@ function groupScenarioRuns(suite: ScenarioSuite): ScenarioSuite {
 }
 
 export function ScenarioViewer({ suite, catalog = { operations: [] }, options }: { suite: ScenarioSuite; catalog?: OpenApiCatalog; options?: ScenarioViewerOptions }) {
-  const [language, setLanguage] = useState<keyof typeof conceptCopy>(() => { try { return localStorage.getItem("baekstage-language-v2") === "ko" ? "ko" : "en"; } catch { return "en"; } });
-  useEffect(() => { try { localStorage.setItem("baekstage-language-v2", language); } catch {} }, [language]);
   const [runtimeSuite, setRuntimeSuite] = useState(suite); useEffect(() => setRuntimeSuite(suite), [suite]);
-  const [view, setView] = useState<"map" | "scenario" | "catalog" | "runs">("map"); const [selectedOperation, setSelectedOperation] = useState<OpenApiOperation | null>(null);
+  const [view, setView] = useState<WorkspaceView>("map"); const [selectedOperation, setSelectedOperation] = useState<OpenApiOperation | null>(null);
   const groupedSuite = useMemo(() => groupScenarioRuns(runtimeSuite), [runtimeSuite]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -70,9 +66,12 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const [maxDetailDepth, setMaxDetailDepth] = useState(3);
   const [detailStatus, setDetailStatus] = useState<"all" | "failed">("all");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(252);
+  const [sidebarWidth, setSidebarWidth] = useState(300);
   const [suiteRunPolicy, setSuiteRunPolicy] = useState<SuiteRunPolicy>("missing");
   const selectedScenario = groupedSuite.scenarios.find((scenario) => scenario.id === selectedScenarioId);
+  const showScenarioSidebar = view === "map" || view === "scenario";
+  const selectedGraphNode = selectedScenario?.nodes.find((node) => node.id === (selectedNodeId ?? mapNodeId));
+  const relatedStoryIds = selectedGraphNode?.relatedStories ?? [];
   const selectedExecution = selectedScenario ? normalizeExecution(selectedScenario) : undefined;
   const run = useScenarioRun(selectedScenario?.id, selectedExecution?.adapter === "playwright" ? selectedExecution.source : selectedScenario?.source, selectedExecution?.adapter === "playwright" ? selectedExecution.grep : undefined, options?.runnerEndpoint);
   useEffect(() => { if (!run.result?.nodeResults?.length) return; setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === run.result?.scenarioId ? applyRunResult(scenario, run.result) : scenario) })); }, [run.result]);
@@ -99,6 +98,7 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const linkedNode = linkedScenario?.nodes.find((node) => node.ref === selectedOperation?.id);
   const applyApiResult = (result: ApiRunResponse) => setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === result.scenarioId ? applyRunResult(scenario, result) : scenario) }));
   const applySuiteRunResult = useCallback((result: ApiRunResponse) => setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === result.scenarioId ? applyRunResult(scenario, result) : scenario) })), []);
+  const applyVisualResult = useCallback((result: import("../core/types").TestResult) => { const storyId = typeof result.metadata?.storyId === "string" ? result.metadata.storyId : undefined; if (!storyId) return; setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => ({ ...scenario, nodes: scenario.nodes.map((node) => node.relatedStories?.includes(storyId) ? { ...node, testResults: [...(node.testResults ?? []).filter((item) => !(item.type === "visual" && item.metadata?.storyId === storyId)), { ...result, scenarioId: scenario.id, stepId: node.id }] } : node) })) })); }, []);
   const suiteRun = useSuiteRun(options?.runnerEndpoint, applySuiteRunResult);
   const openApiNode = (ref: string, target: "catalog" | "current" = "catalog") => { const operation = catalog.operations.find((item) => item.id === ref); if (operation) { setSelectedOperation(operation); if (target === "catalog") setView("catalog"); } };
   const openScenarioNode = (scenarioId: string, nodeId: string) => { setSelectedScenarioId(scenarioId); setSelectedNodeId(nodeId); setEdgeScreenshots([]); setAllScreenshotsOpen(false); setView("scenario"); const node = groupedSuite.scenarios.find((item) => item.id === scenarioId)?.nodes.find((item) => item.id === nodeId); if (node?.kind === "api" && node.ref) openApiNode(node.ref, "current"); else setSelectedOperation(null); };
@@ -119,9 +119,14 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   };
   const runSelectedMapApi = () => { const node = selectedScenario?.nodes.find((item) => item.id === mapNodeId); if (node?.ref) openApiNode(node.ref, "current"); };
 
-  return <main className={`baekstage-root ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
-    <WorkspaceSidebar suite={groupedSuite} open={sidebarOpen} selectedId={selectedScenarioId} batch={{ policy: suiteRunPolicy, running: suiteRun.running, progress: suiteRun.progress }} onPolicy={setSuiteRunPolicy} onRunAll={() => void suiteRun.run(runtimeSuite.scenarios, suiteRunPolicy)} onStop={suiteRun.stop} onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth} onSelect={(id) => { setView("map"); selectScenario(id); }}/>
-    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1><p>{selectedScenario?.description ?? "UI, API, service와 test result를 Scenario 흐름으로 탐색하세요."}</p><section className="concept-help" lang={language}><div className="language-switch" role="group" aria-label="Concept language"><button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")} aria-pressed={language === "en"}>English</button><button className={language === "ko" ? "active" : ""} onClick={() => setLanguage("ko")} aria-pressed={language === "ko"}>한국어</button></div><dl className="concept-glossary" aria-label="Baekstage concepts">{conceptCopy[language].map((concept) => <div key={concept.term}><dt>{concept.term}</dt><dd>{concept.description}</dd></div>)}</dl></section></div><nav className="workspace-tabs" aria-label="Workspace views">{(["map", "scenario", "catalog", "runs"] as const).map((item) => <button className={view === item ? "active" : ""} onClick={() => setView(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav></header>
+  return <main className={`baekstage-root ${showScenarioSidebar ? sidebarOpen ? "sidebar-open" : "sidebar-collapsed" : "without-sidebar"}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+    {showScenarioSidebar && <WorkspaceSidebar
+      suite={groupedSuite} open={sidebarOpen} selectedId={selectedScenarioId}
+      batch={{ policy: suiteRunPolicy, running: suiteRun.running, progress: suiteRun.progress }}
+      onPolicy={setSuiteRunPolicy} onRunAll={() => void suiteRun.run(runtimeSuite.scenarios, suiteRunPolicy)} onStop={suiteRun.stop}
+      onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth}
+      onSelect={(id) => { setView("map"); selectScenario(id); }}/>} {/* Map-only scenario explorer */}
+    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1></div><nav className="workspace-tabs" aria-label="Workspace views"><button className={view === "map" || view === "scenario" ? "active" : ""} onClick={() => setView("map")}>Map</button><button aria-label="Catalog" className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>API</button><button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>Review</button></nav></header>
     {(view === "map" || (view === "scenario" && !selectedScenario)) && <div className="overview-workspace">
       <SuiteGalaxy suite={groupedSuite} selectedScenarioId={selectedScenarioId ?? undefined} selectedNodeId={mapNodeId ?? undefined} maxDetailDepth={maxDetailDepth} detailStatus={detailStatus} screenshots={screenshots} activeScreenshots={edgeScreenshots} onScreenshotsSelect={selectScreenshots} onSuiteSelect={() => { setSelectedScenarioId(null); setSuiteOpen(true); }} onScenarioSelect={selectScenario} onNodeSelect={inspectMapNode} onApiNodeSelect={openApiNode} onBackgroundClick={closePanels}/>
       <section className="galaxy-filters" aria-label="network graph filters"><div><span>Detail depth</span>{[0,1,2,3].map((depth) => <button className={maxDetailDepth === depth ? "active" : ""} onClick={() => setMaxDetailDepth(depth)} key={depth}>{depth === 0 ? "Main" : depth}</button>)}</div><div><span>Step status</span><button className={detailStatus === "all" ? "active" : ""} onClick={() => setDetailStatus("all")}>All</button><button className={detailStatus === "failed" ? "active" : ""} onClick={() => setDetailStatus("failed")}>Failed</button></div></section>
@@ -141,6 +146,7 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
       graph={selectedScenario} scenario={selectedScenario}
       screenshots={screenshots}
       selected={selectedScenario.nodes.find((node) => node.id === selectedNodeId) ?? selectedScenario.nodes[0]}
+      onOpenStory={() => setView("review")}
       onSelect={(id) => { const node = selectedScenario.nodes.find((item) => item.id === id); setSelectedNodeId(id); if (node?.kind === "api" && node.ref) openApiNode(node.ref, "current"); else setSelectedOperation(null); }}/>
       {selectedOperation && <ApiWorkbench
         operation={selectedOperation} scenario={linkedScenario} node={linkedNode}
@@ -148,7 +154,7 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
         onClose={() => setSelectedOperation(null)}/>
       }
     </div>}
-    {view === "catalog" && <div className="catalog-workspace"><ApiCatalogView catalog={catalog} suite={runtimeSuite} selected={selectedOperation?.id} onSelect={setSelectedOperation}/>{selectedOperation && <ApiWorkbench operation={selectedOperation} scenario={linkedScenario} node={linkedNode} endpoint={options?.apiRunnerEndpoint} onResult={applyApiResult} onClose={() => setSelectedOperation(null)}/>}</div>}
-    {view === "runs" && <section className="future-view"><h2>Runs</h2><p>Scenario 실행 기록을 통합할 수 있도록 마련된 화면입니다. 현재 실행 결과는 Map과 Catalog에 즉시 반영됩니다.</p></section>}
+    {view === "catalog" && <div className={`catalog-workspace ${selectedOperation ? "with-workbench" : "catalog-full"}`}><ApiCatalogView catalog={catalog} suite={runtimeSuite} selected={selectedOperation?.id} onSelect={setSelectedOperation}/>{selectedOperation && <ApiWorkbench operation={selectedOperation} scenario={linkedScenario} node={linkedNode} endpoint={options?.apiRunnerEndpoint} onResult={applyApiResult} onClose={() => setSelectedOperation(null)}/>}</div>}
+    {view === "review" && <VisualWorkspace storybookEndpoint={options?.storybookEndpoint} reviewEndpoint={options?.reviewEndpoint} relatedStoryIds={relatedStoryIds} onResult={applyVisualResult}/>}
   </main>;
 }

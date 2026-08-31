@@ -20,7 +20,7 @@ export default defineConfig({
       cssFileName: "baekstage",
     },
     rollupOptions: {
-      external: [/^node:/, "vite", "react", "react-dom", "react/jsx-runtime"],
+      external: [/^node:/, "vite", "react", "react-dom", "react/jsx-runtime", "@playwright/test", "pixelmatch", "pngjs"],
     },
   },
 });

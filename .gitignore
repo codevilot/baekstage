@@ -1,6 +1,7 @@
 node_modules/
 .scenario-results/
 .baekstage/
+.env*.local
 dist/
 dist-lib/
 dist-types/

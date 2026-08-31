@@ -1,0 +1,28 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Task Runner Demo API", "version": "1.0.0" },
+  "servers": [{ "url": "http://localhost:8080" }],
+  "paths": {
+    "/exports/{id}/retry": {
+      "post": {
+        "tags": ["Exports"],
+        "operationId": "retryExport",
+        "summary": "Retry a failed demo export",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "example": "demo-123" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "force": { "type": "boolean" } } }, "example": { "force": false } } } },
+        "responses": {
+          "200": { "description": "Retry accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RetryAccepted" }, "example": { "status": "queued" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "INVALID_REQUEST" } } } },
+          "404": { "description": "Export not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "EXPORT_NOT_FOUND" } } } },
+          "409": { "description": "Export already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "EXPORT_ALREADY_RUNNING" } } } },
+          "500": { "description": "Queue unavailable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" }, "example": { "code": "QUEUE_UNAVAILABLE" } } } },
+          "default": { "description": "Unexpected error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    }
+  },
+  "components": { "schemas": {
+    "RetryAccepted": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["queued"] } } },
+    "ApiError": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string" }, "detail": { "type": "string", "nullable": true } } }
+  } }
+}

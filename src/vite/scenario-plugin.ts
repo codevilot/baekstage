@@ -15,10 +15,13 @@ import { matchNetworkOperation } from "../openapi/network-match";
 import { matchResponseBranch, classifyApiTest, matchObservedApiCase } from "../core/api-response";
 import { evaluateApiAssertions } from "../core/assertions";
 import { validateOpenApiSchema } from "./openapi-schema-validator";
+import { StorybookVisualPlatform, WorktreeStorybookManager, listGitWorktrees } from "../visual/platform";
+import type { StorybookSourceConfig } from "../config";
 
 type Item = Record<string, unknown>;
 type Shot = { label: string; url: string; traceUrl?: string; scenarioId?: string; nodeId?: string; edgeId?: string; fromNodeId?: string; toNodeId?: string; category?: string; branch?: string; important?: boolean; checkpoint?: boolean; target?: string };
 export type BaekstagePluginOptions = {
+  workspaceRoot?: string;
   projectRoot: string;
   resultRoot?: string;
   apiBase?: string;
@@ -34,6 +37,8 @@ export type BaekstagePluginOptions = {
   suite?: ScenarioSuite;
   maxRunsPerNode?: number;
   redactKeys?: string[];
+  storybookSources?: StorybookSourceConfig[];
+  visual?: { viewport?: { width: number; height: number }; deviceScaleFactor?: number; locale?: string; timezoneId?: string; threshold?: number };
 };
 
 const cleanBase = (value: string) => `/${value.replace(/^\/+|\/+$/g, "")}`;
@@ -75,12 +80,15 @@ async function copyAttachment(item: Item, destination: string) {
 
 export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   const projectRoot = path.resolve(options.projectRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? projectRoot);
   const resultRoot = path.resolve(options.resultRoot ?? ".scenario-results");
   const apiBase = cleanBase(options.apiBase ?? "/api/scenarios");
   const assetBase = cleanBase(options.assetBase ?? "/scenario-results");
   const traceBase = cleanBase(options.traceViewerBase ?? "/trace-viewer");
   const catalog = options.catalog ?? { operations: [] };
   const apiAdapter = new ApiExecutionAdapter(options.apiSources ?? [], catalog.operations, { timeoutMs: options.apiTimeoutMs, maxResponseBytes: options.apiMaxResponseBytes });
+  const visualPlatform = new StorybookVisualPlatform(workspaceRoot, options.storybookSources ?? [], options.visual);
+  const worktreeManager = new WorktreeStorybookManager(workspaceRoot);
   if (!existsSync(projectRoot)) throw new Error(`Playwright projectRoot does not exist: ${projectRoot}`);
   async function saveArtifacts(id: string, report: unknown) {
     const directory = path.join(resultRoot, id); await mkdir(directory, { recursive: true });
@@ -133,6 +141,33 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   async function saveHistoryRun(result: ScenarioRunResult, nodeId: string) { const directory = historyDirectory(result.scenarioId, nodeId); const previous = historyWrites.get(directory) ?? Promise.resolve(); const current = previous.catch(() => {}).then(async () => { await mkdir(directory, { recursive: true }); await atomicJson(path.join(directory, `${safeSegment(result.runId)}.json`), result); const files = (await readdir(directory)).filter((file) => file.endsWith(".json")); const max = Math.max(1, options.maxRunsPerNode ?? 50); if (files.length > max) { const ordered = await Promise.all(files.map(async (file) => ({ file, time: (await stat(path.join(directory, file))).mtimeMs }))); for (const item of ordered.sort((a, b) => a.time - b.time).slice(0, files.length - max)) await unlink(path.join(directory, item.file)); } }); historyWrites.set(directory, current); try { await current; } finally { if (historyWrites.get(directory) === current) historyWrites.delete(directory); } }
   async function apiHistory(scenarioId: string, nodeId: string) { const directory = historyDirectory(scenarioId, nodeId); if (!existsSync(directory)) return []; const files = (await readdir(directory)).filter((file) => file.endsWith(".json")); const results: ScenarioRunResult[] = []; for (const file of files) try { results.push(redactEvidence(JSON.parse(await readFile(path.join(directory, file), "utf8")), options.redactKeys)); } catch {} return results.sort((left, right) => left.finishedAt.localeCompare(right.finishedAt)); }
   return { name: "baekstage", configureServer(server) {
+    server.middlewares.use("/api/storybook", async (req, res) => {
+      try {
+        const url = new URL(req.url ?? "/", "http://baekstage.local");
+        if (req.method === "GET" && url.pathname === "/sources") return json(res, 200, await visualPlatform.sourceList());
+        if (req.method === "GET" && url.pathname === "/stories") return json(res, 200, await visualPlatform.stories(url.searchParams.get("source") ?? ""));
+        if (req.method === "GET" && url.pathname === "/branches") return json(res, 200, { branches: await worktreeManager.branches(), worktrees: await listGitWorktrees(workspaceRoot) });
+        if (req.method === "POST" && url.pathname === "/worktrees") return json(res, 201, await worktreeManager.create((await requestBody(req)).branch));
+        if (req.method === "POST" && url.pathname === "/worktrees/start") { const input = await requestBody(req); const running = await worktreeManager.start(input.branch); const created = { id: `branch:${input.branch}`, title: input.branch, branch: input.branch, url: running.url }; visualPlatform.addSource(created); return json(res, 200, created); }
+        if (req.method === "POST" && url.pathname === "/worktrees/start-revision") { const input = await requestBody(req); const running = await worktreeManager.startRevision(input.reference ?? "HEAD"); const created = { id: `revision:${running.sha}`, title: `${running.reference} · ${running.sha.slice(0, 7)}`, branch: running.branch, url: running.url }; visualPlatform.addSource(created); return json(res, 200, created); }
+        if (req.method === "POST" && url.pathname === "/worktrees/stop") { const input = await requestBody(req); await worktreeManager.stop(input.branch); return json(res, 200, { stopped: true }); }
+        if (req.method === "DELETE" && url.pathname === "/worktrees") return json(res, 200, await worktreeManager.remove((await requestBody(req)).branch));
+        if (req.method === "POST" && url.pathname === "/capture") return json(res, 200, await visualPlatform.capture(await requestBody(req)));
+        return json(res, 405, { error: "Method not allowed" });
+      } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
+    });
+    server.middlewares.use("/api/reviews", async (req, res) => {
+      try {
+        const url = new URL(req.url ?? "/", "http://baekstage.local");
+        if (req.method === "GET" && url.pathname === "/annotations") return json(res, 200, await visualPlatform.annotations(url.searchParams.get("storyId") ?? undefined));
+        if (req.method === "POST" && url.pathname === "/annotations") return json(res, 201, await visualPlatform.createAnnotation(await requestBody(req)));
+        const annotation = url.pathname.match(/^\/annotations\/([^/]+)$/);
+        if (req.method === "PATCH" && annotation) return json(res, 200, await visualPlatform.updateAnnotation(decodeURIComponent(annotation[1]), await requestBody(req)));
+        if (req.method === "POST" && url.pathname === "/decision") { const input = await requestBody(req); return json(res, 200, input.status === "approved" ? await visualPlatform.approve(input.storyId, input.buildId, input.branch, input.author) : await visualPlatform.review({ storyId: input.storyId, buildId: input.buildId, status: input.status, author: input.author })); }
+        return json(res, 405, { error: "Method not allowed" });
+      } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
+    });
+    server.middlewares.use("/baekstage-assets", (req, res, next) => { const assetRoot = path.join(workspaceRoot, ".baekstage"); const file = path.resolve(assetRoot, `.${req.url}`); if (!file.startsWith(`${assetRoot}${path.sep}`) || !existsSync(file)) return next(); readFile(file).then((data) => { res.writeHead(200, { "content-type": file.endsWith(".json") ? "application/json" : "image/png", "cache-control": "no-store" }); res.end(data); }).catch(next); });
     server.middlewares.use("/api/catalog", (req, res) => req.method === "GET" ? json(res, 200, catalog) : json(res, 405, { error: "Method not allowed" }));
     server.middlewares.use("/api/operations", async (req, res) => {
       try {
@@ -157,5 +192,6 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
     server.middlewares.use(traceBase, (req, res, next) => { const relative = req.url === "/" ? "/index.html" : req.url?.split("?")[0] ?? "/index.html"; const file = path.resolve(traceRoot, `.${relative}`); if (!file.startsWith(`${traceRoot}${path.sep}`) || !existsSync(file)) return next(); const types: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ttf": "font/ttf" }; readFile(file).then((data) => { res.writeHead(200, { "content-type": types[path.extname(file)] ?? "application/octet-stream" }); res.end(data); }).catch(next); });
     server.middlewares.use(assetBase, (req, res, next) => { const file = path.resolve(resultRoot, `.${req.url}`); if (!file.startsWith(`${resultRoot}${path.sep}`) || !existsSync(file)) return next(); readFile(file).then((data) => { res.writeHead(200, { "content-type": file.endsWith(".zip") ? "application/zip" : file.endsWith(".jpg") ? "image/jpeg" : file.endsWith(".json") ? "application/json" : "image/png", "access-control-allow-origin": "*" }); res.end(data); }).catch(next); });
     server.middlewares.use(apiBase, async (req, res) => { try { const match = req.url?.match(/^\/([^/]+)(?:\/run)?/); const id = match?.[1]; if (!id) return json(res, 400, { error: "Scenario id is required" }); if (req.method === "GET") { const file = path.join(resultRoot, id, "manifest.json"); return json(res, 200, existsSync(file) ? JSON.parse(await readFile(file, "utf8")) : null); } if (req.method === "POST" && req.url?.endsWith("/run")) { const input = await requestBody(req); return json(res, 200, await playwrightAdapter.run({ source: input.source, grep: input.grep }, { scenarioId: id })); } json(res, 405, { error: "Method not allowed" }); } catch (error) { json(res, 500, { error: error instanceof Error ? error.message : String(error) }); } });
+    return () => worktreeManager.close();
   }};
 }

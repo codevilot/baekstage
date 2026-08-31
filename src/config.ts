@@ -1,7 +1,7 @@
 import type { ScenarioSuite } from "./core/types";
 
 export type OpenApiSourceConfig = { id: string; title: string; file: string; baseUrl?: string; environments?: Record<string, string> };
-export type StorybookSourceConfig = { id: string; url: string; title?: string };
+export type StorybookSourceConfig = { id: string; url: string; title?: string; branch?: string };
 export type WebServerConfig = {
   command: string;
   url: string;
@@ -27,6 +27,13 @@ export type BaekstageConfig = {
   suite?: ScenarioSuite;
   discovery?: ScenarioDiscoveryConfig;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };
+  visual?: {
+    viewport?: { width: number; height: number };
+    deviceScaleFactor?: number;
+    locale?: string;
+    timezoneId?: string;
+    threshold?: number;
+  };
   playwright?: {
     projectRoot: string;
     command?: string;

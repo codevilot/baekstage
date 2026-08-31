@@ -7,7 +7,7 @@ import { observeApiScenario } from "baekstage/playwright";
 
 test("retry failed job", async ({ page }, testInfo) => {
   const observe = observeApiScenario(page, testInfo, {
-    scenarioId: "retry-failed-conversion",
+    scenarioId: "retry-failed-export",
   });
   await page.getByRole("button", { name: "Retry" }).click();
   await observe.flush();
@@ -31,7 +31,7 @@ export const test = createBaekstageTest(base, {
   exclude: ["**/analytics/**", "**/health", "**/events"],
 });
 
-test("retry-failed-conversion", async ({ page, baekstage }) => {
+test("retry-failed-export", async ({ page, baekstage }) => {
   await baekstage.step({
     id: "click-retry",
     fromNodeId: "retry-button",
@@ -73,19 +73,19 @@ test("card checkout", async ({ page }, testInfo) => {
 
 ## Capture one DOM element
 
-Use `markElementScreenshot` for a Metric card, table, dialog, or other focused region.
+Use `markElementScreenshot` for a total card, table, dialog, or other focused region.
 `target` is descriptive metadata and can hold the locator used by the test.
 
 ```ts
 import { markElementScreenshot } from "baekstage/playwright";
 
-await test.step("Scenario node: Metric after", async () => {
-  await markElementScreenshot(page.getByTestId("operator-metric"), testInfo, {
-    scenarioId: "review-operator",
-    nodeId: "operator-after",
-    label: "Operator Metric after review",
+await test.step("Scenario node: total after discount", async () => {
+  await markElementScreenshot(page.getByTestId("order-total"), testInfo, {
+    scenarioId: "apply-discount",
+    nodeId: "after",
+    label: "Discounted order total",
     category: "After result",
-    target: "[data-testid=operator-metric]",
+    target: "[data-testid=order-total]",
     checkpoint: true,
   });
 });

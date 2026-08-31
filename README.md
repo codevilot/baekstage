@@ -22,8 +22,8 @@ import { defineConfig } from "baekstage/config";
 
 export default defineConfig({
   sources: { openapi: [{
-    id: "task-runner",
-    title: "Task Runner API",
+    id: "shop-api",
+    title: "Shop API",
     file: "./openapi.yaml",
     environments: { Local: "http://localhost:8080" },
   }] },
@@ -132,16 +132,18 @@ does not restyle the host application's `main`, `header`, buttons, or sidebars.
 ```ts
 import { markElementScreenshot } from "baekstage/playwright";
 
-await markElementScreenshot(page.getByTestId("metric"), testInfo, {
-  scenarioId: "review-review",
-  nodeId: "metric-after",
-  label: "Metric after review",
-  target: "[data-testid=metric]",
+await markElementScreenshot(page.getByTestId("order-total"), testInfo, {
+  scenarioId: "checkout-card",
+  nodeId: "total-after",
+  label: "Order total after discount",
+  target: "[data-testid=order-total]",
   checkpoint: true,
 });
 ```
 
 ## Documentation
+
+- [Integrated testing and visual review](docs/integrated-testing.md)
 
 - [Getting started and configuration](docs/getting-started.md)
 - [CLI reference](docs/cli.md)

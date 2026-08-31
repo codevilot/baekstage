@@ -5,8 +5,8 @@ Register OpenAPI 3.x JSON or YAML documents in `baekstage.config.ts`:
 ```ts
 export default defineConfig({
   sources: { openapi: [{
-    id: "task-runner",
-    title: "Task Runner API",
+    id: "shop-api",
+    title: "Shop API",
     file: "./openapi.yaml",
     baseUrl: "http://localhost:8080",
     environments: {

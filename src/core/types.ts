@@ -3,6 +3,71 @@ export type ScenarioNodeStatus = "planned" | "running" | "passed" | "failed" | "
 
 export type ScenarioArtifactType = "screenshot" | "trace" | "json" | "request" | "response" | "log" | "database-diff" | "metric" | "video" | "file";
 
+export type TestType = "e2e" | "api" | "component" | "visual";
+export type TestStatus = "idle" | "running" | "passed" | "failed" | "skipped" | "changed" | "approved" | "rejected";
+
+/** Engine-neutral result consumed by the graph and review surfaces. */
+export type TestResult = {
+  id: string;
+  type: TestType;
+  suiteId?: string;
+  scenarioId?: string;
+  stepId?: string;
+  status: TestStatus;
+  duration?: number;
+  artifacts?: ScenarioArtifact[];
+  metadata?: Record<string, unknown>;
+};
+
+export type StorybookStory = {
+  id: string;
+  sourceId: string;
+  title: string;
+  name: string;
+  component: string;
+  tags: string[];
+  previewUrl: string;
+};
+
+export type VisualDiff = {
+  changedPixels: number;
+  totalPixels: number;
+  diffRatio: number;
+  baselineImage: string;
+  currentImage: string;
+  diffImage: string;
+};
+
+export type VisualBuild = {
+  id: string;
+  repository: string;
+  branch: string;
+  commitSha?: string;
+  baseBranch?: string;
+  baseCommitSha?: string;
+  workingTreeDirty?: boolean;
+  createdAt: string;
+};
+
+export type ReviewStatus = "changed" | "approved" | "rejected";
+export type AnnotationComment = { id: string; author: string; body: string; createdAt: string };
+export type Annotation = {
+  id: string;
+  storyId: string;
+  branch?: string;
+  buildId?: string;
+  x?: number;
+  y?: number;
+  selector?: string;
+  elementPath?: string;
+  comment: string;
+  comments: AnnotationComment[];
+  status: "open" | "resolved";
+  createdAt: string;
+};
+
+export type VisualReview = { storyId: string; buildId: string; status: ReviewStatus; updatedAt: string; author?: string };
+
 export type ScenarioArtifact = {
   label: string;
   url: string;
@@ -158,6 +223,9 @@ export type ScenarioNode = {
   artifacts?: ScenarioArtifact[];
   latestResult?: ScenarioNodeResult;
   resultHistory?: ScenarioNodeResult[];
+  /** Storybook states and engine-neutral results linked to this E2E/API step. */
+  relatedStories?: string[];
+  testResults?: TestResult[];
 };
 
 export type ScenarioEdge = {
@@ -192,6 +260,8 @@ export type ScenarioViewerOptions = {
   traceViewerEndpoint?: string;
   catalogEndpoint?: string;
   apiRunnerEndpoint?: string;
+  storybookEndpoint?: string;
+  reviewEndpoint?: string;
 };
 
 export type OpenApiParameter = { name: string; in: "path" | "query" | "header" | "cookie"; required?: boolean; description?: string; schema?: unknown; example?: unknown };

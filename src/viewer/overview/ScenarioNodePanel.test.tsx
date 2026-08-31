@@ -6,12 +6,12 @@ import type { ScenarioGraph } from "../../core/types";
 import { ScenarioNodePanel } from "./ScenarioNodePanel";
 
 const scenario: ScenarioGraph = {
-  id: "operator",
-  title: "Create operator",
+  id: "customer",
+  title: "Create customer",
   nodes: [
     { id: "session", title: "Admin session", kind: "fixture" },
     { id: "manage", title: "Team Manage", kind: "screen" },
-    { id: "submit", title: "Submit Operator signup", kind: "action" },
+    { id: "submit", title: "Submit customer signup", kind: "action" },
   ],
   edges: [
     { id: "open", source: "session", target: "manage" },
