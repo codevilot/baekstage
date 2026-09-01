@@ -76,4 +76,22 @@ describe("worktree Storybook manager", () => {
       execFileSync("git", ["switch", "feature"], { cwd: repository, stdio: "ignore" });
     } finally { await rm(repository, { recursive: true, force: true }); }
   });
+
+  test("preserves dirty and locked legacy worktrees with actionable warnings", async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), "baekstage-preserved-worktree-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: repository, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repository }); execFileSync("git", ["config", "user.name", "Baekstage Test"], { cwd: repository });
+      await writeFile(path.join(repository, "README.md"), "fixture"); execFileSync("git", ["add", "."], { cwd: repository }); execFileSync("git", ["commit", "-m", "initial"], { cwd: repository, stdio: "ignore" }); execFileSync("git", ["branch", "dirty-preview"], { cwd: repository }); execFileSync("git", ["branch", "locked-preview"], { cwd: repository });
+      const dirty = path.join(repository, ".baekstage", "worktrees", "dirty"); const locked = path.join(repository, ".baekstage", "worktrees", "locked"); await mkdir(path.dirname(dirty), { recursive: true });
+      execFileSync("git", ["worktree", "add", dirty, "dirty-preview"], { cwd: repository, stdio: "ignore" }); execFileSync("git", ["worktree", "add", locked, "locked-preview"], { cwd: repository, stdio: "ignore" });
+      await writeFile(path.join(dirty, "README.md"), "changed"); execFileSync("git", ["worktree", "lock", locked], { cwd: repository, stdio: "ignore" });
+      const manager = new WorktreeStorybookManager(repository);
+
+      await manager.branches();
+
+      expect(existsSync(dirty)).toBe(true); expect(existsSync(locked)).toBe(true);
+      expect(manager.warnings()).toEqual(expect.arrayContaining([expect.stringContaining("dirty-preview: working changes preserved"), expect.stringContaining("locked-preview: locked")]));
+    } finally { await rm(repository, { recursive: true, force: true }); }
+  });
 });

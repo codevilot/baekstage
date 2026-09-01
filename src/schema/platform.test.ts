@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compareSchemaSnapshots, parsePostgresDump } from "./platform";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { compareSchemaSnapshots, parsePostgresDump, SchemaPlatform, SchemaPlatformError } from "./platform";
 
 const dump = (column: string, extra = "") => `--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
@@ -43,5 +47,32 @@ CREATE INDEX "users_email_idx" ON "public"."users" USING "btree" ("email");
       { name: "email", status: "added", before: undefined, after: "text" },
       { name: "login_id", status: "removed", before: "text", after: undefined },
     ]);
+  });
+
+  it("classifies invalid revisions and missing revision files without creating worktrees", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-schema-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root }); execFileSync("git", ["config", "user.name", "Baekstage Test"], { cwd: root });
+      await writeFile(path.join(root, "README.md"), "schema fixture"); execFileSync("git", ["add", "."], { cwd: root }); execFileSync("git", ["commit", "-m", "without schema"], { cwd: root, stdio: "ignore" });
+      await writeFile(path.join(root, "db.sql"), dump("login_id"));
+      const platform = new SchemaPlatform(root, [{ id: "tdp", title: "TDP", file: "db.sql", format: "postgres-dump" }]);
+
+      await expect(platform.compare({ sourceId: "tdp", before: "missing-branch", after: "working" })).rejects.toMatchObject<Partial<SchemaPlatformError>>({ code: "SCHEMA_REFERENCE_NOT_FOUND", status: 404 });
+      await expect(platform.compare({ sourceId: "tdp", before: "HEAD", after: "working" })).rejects.toMatchObject<Partial<SchemaPlatformError>>({ code: "SCHEMA_FILE_NOT_FOUND_AT_REFERENCE", status: 404 });
+      expect(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" }).match(/^worktree /gmu)).toHaveLength(1);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("rejects duplicate source identifiers at startup", () => {
+    expect(() => new SchemaPlatform("/tmp", [
+      { id: "tdp", title: "One", file: "one.sql", format: "postgres-dump" },
+      { id: "tdp", title: "Two", file: "two.sql", format: "postgres-dump" },
+    ])).toThrow(expect.objectContaining({ code: "SCHEMA_SOURCE_DUPLICATE" }));
+  });
+
+  it("rejects malformed comparison bodies before Git or filesystem access", async () => {
+    const platform = new SchemaPlatform("/tmp", []);
+    await expect(platform.compare(null)).rejects.toMatchObject({ code: "SCHEMA_REQUEST_INVALID", status: 400 });
   });
 });

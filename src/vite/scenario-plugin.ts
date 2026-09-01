@@ -15,9 +15,9 @@ import { matchNetworkOperation } from "../openapi/network-match";
 import { matchResponseBranch, classifyApiTest, matchObservedApiCase } from "../core/api-response";
 import { evaluateApiAssertions } from "../core/assertions";
 import { validateOpenApiSchema } from "./openapi-schema-validator";
-import { StorybookVisualPlatform, WorktreeStorybookManager, listGitWorktrees } from "../visual/platform";
+import { StorybookVisualPlatform, WorktreePlatformError, WorktreeStorybookManager, listGitWorktrees } from "../visual/platform";
 import type { SchemaSourceConfig, StorybookSourceConfig } from "../config";
-import { SchemaPlatform } from "../schema/platform";
+import { SchemaPlatform, SchemaPlatformError } from "../schema/platform";
 
 type Item = Record<string, unknown>;
 type Shot = { label: string; url: string; traceUrl?: string; scenarioId?: string; nodeId?: string; edgeId?: string; fromNodeId?: string; toNodeId?: string; category?: string; branch?: string; important?: boolean; checkpoint?: boolean; target?: string };
@@ -153,7 +153,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         if (req.method === "GET" && url.pathname === "/references") return json(res, 200, await schemaPlatform.references());
         if (req.method === "POST" && url.pathname === "/compare") return json(res, 200, await schemaPlatform.compare(await requestBody(req)));
         return json(res, 405, { error: "Method not allowed" });
-      } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) { return error instanceof SchemaPlatformError ? json(res, error.status, { code: error.code, error: error.message }) : error instanceof ApiExecutionError || error instanceof SyntaxError ? json(res, error instanceof ApiExecutionError ? error.status : 400, { code: "SCHEMA_REQUEST_INVALID", error: "Schema comparison request is invalid" }) : json(res, 500, { code: "SCHEMA_INTERNAL_ERROR", error: "Schema comparison failed" }); }
     });
     server.middlewares.use("/api/storybook", async (req, res) => {
       try {
@@ -162,7 +162,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         if (req.method === "GET" && url.pathname === "/commits") return json(res, 200, await visualPlatform.recentCommits());
         if (req.method === "GET" && url.pathname === "/changed-files") return json(res, 200, await visualPlatform.changedFiles(url.searchParams.get("base") ?? "HEAD"));
         if (req.method === "GET" && url.pathname === "/stories") return json(res, 200, await visualPlatform.stories(url.searchParams.get("source") ?? ""));
-        if (req.method === "GET" && url.pathname === "/branches") return json(res, 200, { branches: await worktreeManager.branches(), worktrees: await listGitWorktrees(workspaceRoot) });
+        if (req.method === "GET" && url.pathname === "/branches") { const branches = await worktreeManager.branches(); return json(res, 200, { branches, worktrees: await listGitWorktrees(workspaceRoot), warnings: worktreeManager.warnings() }); }
         if (req.method === "POST" && url.pathname === "/worktrees") return json(res, 201, await worktreeManager.create((await requestBody(req)).branch));
         if (req.method === "POST" && url.pathname === "/worktrees/start") { const input = await requestBody(req); const running = await worktreeManager.start(input.branch); const created = { id: `branch:${input.branch}`, title: input.branch, branch: input.branch, url: running.url }; visualPlatform.addSource(created); return json(res, 200, created); }
         if (req.method === "POST" && url.pathname === "/worktrees/start-revision") { const input = await requestBody(req); const running = await worktreeManager.startRevision(input.reference ?? "HEAD"); const created = { id: `revision:${running.sha}`, title: `${running.reference} · ${running.sha.slice(0, 7)}`, branch: running.branch, url: running.url }; visualPlatform.addSource(created); return json(res, 200, created); }
@@ -171,7 +171,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         if (req.method === "POST" && url.pathname === "/capture") return json(res, 200, await visualPlatform.capture(await requestBody(req)));
         if (req.method === "POST" && url.pathname === "/capture-many") { const input = await requestBody(req); if (!Array.isArray(input.items)) return json(res, 400, { error: "items must be an array" }); return json(res, 200, await visualPlatform.captureMany(input.items, input.concurrency ?? 4)); }
         return json(res, 405, { error: "Method not allowed" });
-      } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) { return error instanceof WorktreePlatformError ? json(res, error.status, { code: error.code, error: error.message }) : error instanceof ApiExecutionError || error instanceof SyntaxError ? json(res, error instanceof ApiExecutionError ? error.status : 400, { code: "WORKTREE_REQUEST_INVALID", error: "Worktree request is invalid" }) : json(res, 500, { code: "WORKTREE_INTERNAL_ERROR", error: error instanceof Error ? error.message : "Worktree operation failed" }); }
     });
     server.middlewares.use("/api/reviews", async (req, res) => {
       try {

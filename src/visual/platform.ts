@@ -13,8 +13,14 @@ import { FileMetadataStore, type MetadataStore } from "./storage";
 type CaptureOptions = { viewport?: { width: number; height: number }; deviceScaleFactor?: number; locale?: string; timezoneId?: string; threshold?: number };
 type CaptureInput = { sourceId: string; storyId: string; branch?: string; baseBranch?: string; baseSourceId?: string };
 type GitState = { repository: string; branch: string; commitSha?: string; workingTreeDirty: boolean; baseCommitSha?: string };
+export type GitWorktree = { directory: string; branch: string; dirty: boolean; inspectable: boolean; locked: boolean; managed: boolean };
 export type RecentCommit = { sha: string; shortSha: string; committedAt: string; subject: string };
 const safe = (value: string) => encodeURIComponent(value).replaceAll("%", "_");
+const isInside = (root: string, target: string) => { const relative = path.relative(path.resolve(root), path.resolve(target)); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+
+export class WorktreePlatformError extends Error {
+  constructor(public readonly code: string, message: string, public readonly status = 409) { super(message); this.name = "WorktreePlatformError"; }
+}
 
 function command(cwd: string, args: string[]) {
   return new Promise<string>((resolve, reject) => execFile("git", args, { cwd }, (error, stdout) => error ? reject(error) : resolve(stdout.trim())));
@@ -144,9 +150,16 @@ export async function compareImages(baselinePath: string, currentPath: string, d
 }
 
 export async function listGitWorktrees(root: string) {
-  const output = await command(root, ["worktree", "list", "--porcelain"]).catch(() => "");
+  let output: string;
+  try { output = await command(root, ["worktree", "list", "--porcelain"]); }
+  catch { throw new WorktreePlatformError("WORKTREE_LIST_FAILED", "Git worktrees could not be inspected", 503); }
   const blocks = output.split(/\n\n+/).filter(Boolean);
-  return Promise.all(blocks.map(async (block) => { const lines = block.split("\n"); const directory = lines.find((line) => line.startsWith("worktree "))?.slice(9) ?? ""; const branch = lines.find((line) => line.startsWith("branch "))?.replace("branch refs/heads/", "") ?? "detached"; const dirty = !!await command(directory, ["status", "--porcelain"]).catch(() => ""); return { directory, branch, dirty, managed: directory.startsWith(path.join(root, ".baekstage", "worktrees")) }; }));
+  return Promise.all(blocks.map(async (block): Promise<GitWorktree> => {
+    const lines = block.split("\n"); const directory = lines.find((line) => line.startsWith("worktree "))?.slice(9) ?? ""; const branch = lines.find((line) => line.startsWith("branch "))?.replace("branch refs/heads/", "") ?? "detached";
+    let dirty = true; let inspectable = false;
+    if (directory) try { dirty = !!await command(directory, ["status", "--porcelain"]); inspectable = true; } catch {}
+    return { directory, branch, dirty, inspectable, locked: lines.some((line) => line === "locked" || line.startsWith("locked ")), managed: !!directory && isInside(path.join(root, ".baekstage", "worktrees"), directory) };
+  }));
 }
 
 async function availablePort(start = 6006) {
@@ -165,7 +178,8 @@ async function packageManager(directory: string) {
 
 export class WorktreeStorybookManager {
   private readonly detachedPreviews = new Map<string, string>();
-  private readonly processes = new Map<string, { child: ChildProcess; url: string; port: number }>();
+  private readonly processes = new Map<string, { child: ChildProcess; url: string; port: number; worktreeRoot?: string }>();
+  private cleanupWarnings: string[] = [];
   constructor(private readonly root: string) {}
   private async projectDirectory(worktreeRoot: string) {
     const projectRelativePath = (await command(this.root, ["rev-parse", "--show-prefix"])).replace(/\/$/, "");
@@ -198,21 +212,27 @@ export class WorktreeStorybookManager {
     return { directory, worktreeRoot, branch, packageManager: manager.name, dependenciesInstalled: await this.ensureDependencies(directory), managed };
   }
   private async releaseLegacyBranchLocks() {
-    const legacy = (await listGitWorktrees(this.root)).filter((item) => item.managed && item.branch !== "detached" && !item.dirty);
+    this.cleanupWarnings = [];
+    const managedBranches = (await listGitWorktrees(this.root)).filter((item) => item.managed && item.branch !== "detached");
+    const legacy = managedBranches.filter((item) => item.inspectable && !item.locked && !item.dirty);
+    for (const item of managedBranches.filter((entry) => !legacy.includes(entry))) this.cleanupWarnings.push(`${item.branch}: ${item.locked ? "locked" : !item.inspectable ? "status unavailable" : "working changes preserved"}`);
     for (const item of legacy) {
-      await this.stop(item.branch);
-      await command(this.root, ["worktree", "remove", item.directory]);
+      try { await this.stop(item.branch); await command(this.root, ["worktree", "remove", item.directory]); }
+      catch { this.cleanupWarnings.push(`${item.branch}: clean legacy worktree could not be released`); }
     }
   }
   async branches() { await this.releaseLegacyBranchLocks(); const output = await command(this.root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]); return output.split("\n").filter(Boolean); }
+  warnings() { return [...this.cleanupWarnings]; }
   async commits(limit = 20) { const output = await command(this.root, ["log", `-${limit}`, "--pretty=format:%H%x09%h%x09%cI%x09%s"]); return output.split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }); }
   async create(branch: string) {
-    if (!(await this.branches()).includes(branch)) throw new Error("Branch does not exist");
-    const sha = await command(this.root, ["rev-parse", "--verify", `${branch}^{commit}`]);
+    if (typeof branch !== "string" || !branch || /[\0\r\n]/u.test(branch)) throw new WorktreePlatformError("WORKTREE_BRANCH_INVALID", "Branch is invalid", 400);
+    if (!(await this.branches()).includes(branch)) throw new WorktreePlatformError("WORKTREE_BRANCH_NOT_FOUND", `Branch does not exist: ${branch}`, 404);
+    let sha: string; try { sha = await command(this.root, ["rev-parse", "--verify", "--end-of-options", `${branch}^{commit}`]); } catch { throw new WorktreePlatformError("WORKTREE_BRANCH_NOT_FOUND", `Branch does not exist: ${branch}`, 404); }
     const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "previews", `${safe(branch)}-${sha.slice(0, 12)}`);
     const resolved = path.resolve(worktreeRoot); const managedRoot = path.resolve(this.root, ".baekstage", "worktrees", "previews");
-    if (!resolved.startsWith(`${managedRoot}${path.sep}`)) throw new Error("Unsafe worktree path");
-    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); }
+    if (!resolved.startsWith(`${managedRoot}${path.sep}`)) throw new WorktreePlatformError("WORKTREE_PATH_UNSAFE", "Unsafe worktree path", 400);
+    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); try { await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); } catch { throw new WorktreePlatformError("WORKTREE_CREATE_FAILED", `Detached preview could not be created for ${branch}`); } }
+    await this.validatePreview(worktreeRoot, sha);
     this.detachedPreviews.set(branch, worktreeRoot);
     return this.describeWorktree(worktreeRoot, branch, true);
   }
@@ -220,13 +240,16 @@ export class WorktreeStorybookManager {
     const worktree = await this.create(branch); return this.launch(`branch:${branch}`, worktree);
   }
   async startRevision(reference = "HEAD") {
-    const sha = await command(this.root, ["rev-parse", "--verify", `${reference}^{commit}`]); const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "revisions", sha.slice(0, 12)); const managedRoot = path.join(this.root, ".baekstage", "worktrees", "revisions"); if (!path.resolve(worktreeRoot).startsWith(`${path.resolve(managedRoot)}${path.sep}`)) throw new Error("Unsafe revision worktree path");
-    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); }
+    if (typeof reference !== "string" || !reference || /[\0\r\n]/u.test(reference)) throw new WorktreePlatformError("WORKTREE_REFERENCE_INVALID", "Revision reference is invalid", 400);
+    let sha: string; try { sha = await command(this.root, ["rev-parse", "--verify", "--end-of-options", `${reference}^{commit}`]); } catch { throw new WorktreePlatformError("WORKTREE_REFERENCE_NOT_FOUND", `Revision does not exist: ${reference}`, 404); } const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "revisions", sha.slice(0, 12)); const managedRoot = path.join(this.root, ".baekstage", "worktrees", "revisions"); if (!path.resolve(worktreeRoot).startsWith(`${path.resolve(managedRoot)}${path.sep}`)) throw new WorktreePlatformError("WORKTREE_PATH_UNSAFE", "Unsafe revision worktree path", 400);
+    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); try { await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); } catch { throw new WorktreePlatformError("WORKTREE_CREATE_FAILED", `Detached preview could not be created for ${reference}`); } }
+    await this.validatePreview(worktreeRoot, sha);
     const worktree = await this.describeWorktree(worktreeRoot, `${reference}@${sha.slice(0, 7)}`, true);
     const result = await this.launch(`revision:${sha}`, worktree); return { ...result, sha, reference };
   }
   private async launch(key: string, worktree: { directory: string; worktreeRoot?: string; branch: string; packageManager: string; dependenciesInstalled: boolean; managed?: boolean }) {
-    const existing = this.processes.get(key); if (existing && existing.child.exitCode === null) return { ...worktree, url: existing.url, port: existing.port };
+    const existing = this.processes.get(key); if (existing && existing.child.exitCode === null && path.resolve(existing.worktreeRoot ?? "") === path.resolve(worktree.worktreeRoot ?? "")) return { ...worktree, url: existing.url, port: existing.port };
+    if (existing?.child.exitCode === null) existing.child.kill("SIGTERM"); this.processes.delete(key);
     if (!worktree.dependenciesInstalled) throw new Error(`Dependencies are not installed in ${worktree.directory}`);
     const manager = await packageManager(worktree.directory); const port = await availablePort(); const child = spawn(manager.command, [...manager.args, "--port", String(port), "--host", "127.0.0.1"], { cwd: worktree.directory, env: { ...process.env, BROWSER: "none" }, stdio: ["ignore", "pipe", "pipe"] });
     let processOutput = ""; let processError = "";
@@ -234,14 +257,24 @@ export class WorktreeStorybookManager {
     child.stdout?.on("data", appendOutput); child.stderr?.on("data", appendOutput); child.once("error", (reason) => { processError = reason.message; });
     const url = `http://127.0.0.1:${port}`; const deadline = Date.now() + 60_000;
     const failure = (summary: string) => new Error(`${summary}${processError || processOutput.trim() ? `\n\n${processError || processOutput.trim()}` : ""}`);
-    this.processes.set(key, { child, url, port }); while (Date.now() < deadline) { if (processError) throw failure("Storybook could not be started"); if (child.exitCode !== null) throw failure(`Storybook exited with code ${child.exitCode}`); try { const response = await fetch(`${url}/index.json`); if (response.ok) return { ...worktree, url, port }; } catch {} await new Promise((resolve) => setTimeout(resolve, 500)); }
-    child.kill("SIGTERM"); throw failure("Storybook health check timed out");
+    this.processes.set(key, { child, url, port, worktreeRoot: worktree.worktreeRoot });
+    try { while (Date.now() < deadline) { if (processError) throw failure("Storybook could not be started"); if (child.exitCode !== null) throw failure(`Storybook exited with code ${child.exitCode}`); try { const response = await fetch(`${url}/index.json`); if (response.ok) return { ...worktree, url, port }; } catch {} await new Promise((resolve) => setTimeout(resolve, 500)); } throw failure("Storybook health check timed out"); }
+    catch (error) { if (child.exitCode === null) child.kill("SIGTERM"); this.processes.delete(key); throw error; }
   }
   async stop(branch: string) { const key = `branch:${branch}`; const preview = this.processes.get(key); if (preview && preview.child.exitCode === null) preview.child.kill("SIGTERM"); this.processes.delete(key); }
   async remove(branch: string) {
     const directory = this.detachedPreviews.get(branch); if (!directory) throw new Error("Only a Baekstage-managed preview can be removed");
-    const dirty = !!await command(directory, ["status", "--porcelain"]).catch(() => ""); if (dirty) throw new Error("Preview has uncommitted changes and was not removed");
+    let dirty: boolean; try { dirty = !!await command(directory, ["status", "--porcelain"]); } catch { throw new WorktreePlatformError("WORKTREE_STATUS_UNAVAILABLE", "Preview status could not be verified and it was not removed"); } if (dirty) throw new WorktreePlatformError("WORKTREE_DIRTY", "Preview has uncommitted changes and was not removed");
     await this.stop(branch); await command(this.root, ["worktree", "remove", directory]); this.detachedPreviews.delete(branch); return { removed: true, directory };
   }
   close() { for (const [key, preview] of this.processes) { if (preview.child.exitCode === null) preview.child.kill("SIGTERM"); this.processes.delete(key); } }
+
+  private async validatePreview(directory: string, expectedSha: string) {
+    const worktree = (await listGitWorktrees(this.root)).find((item) => path.resolve(item.directory) === path.resolve(directory));
+    if (!worktree) throw new WorktreePlatformError("WORKTREE_NOT_REGISTERED", "Preview directory exists but is not a registered Git worktree");
+    if (!worktree.inspectable) throw new WorktreePlatformError("WORKTREE_STATUS_UNAVAILABLE", "Preview status could not be verified");
+    if (worktree.dirty) throw new WorktreePlatformError("WORKTREE_DIRTY", "Preview has uncommitted changes and cannot represent an exact revision");
+    let actualSha: string; try { actualSha = await command(directory, ["rev-parse", "HEAD"]); } catch { throw new WorktreePlatformError("WORKTREE_REVISION_UNAVAILABLE", "Preview revision could not be verified"); }
+    if (actualSha !== expectedSha) throw new WorktreePlatformError("WORKTREE_REVISION_MISMATCH", "Preview revision does not match the requested revision");
+  }
 }

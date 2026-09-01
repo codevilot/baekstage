@@ -10,10 +10,13 @@ import type {
 type Source = { id: string; url: string; title?: string; branch?: string };
 type Branches = {
   branches: string[];
+  warnings?: string[];
   worktrees: Array<{
     directory: string;
     branch: string;
     dirty: boolean;
+    inspectable?: boolean;
+    locked?: boolean;
     managed: boolean;
   }>;
 };
@@ -678,6 +681,7 @@ export function VisualWorkspace({
           ))}
         </nav>
         {error && <p className="review-error">{error}</p>}
+        {branches.warnings?.map((warning) => <p className="review-warning" key={warning}>Preserved worktree · {warning}</p>)}
         <div className={`story-frame mode-${mode}`}>
           {mode === "diff" && capture ? (
             <div

@@ -9,6 +9,13 @@ const execute = promisify(execFile);
 const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
 const unquote = (value: string) => value.replace(/^"|"$/g, "").replaceAll('""', '"');
 
+export class SchemaPlatformError extends Error {
+  constructor(public readonly code: string, message: string, public readonly status = 400) { super(message); this.name = "SchemaPlatformError"; }
+}
+
+function inside(root: string, target: string) { const relative = path.relative(path.resolve(root), path.resolve(target)); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); }
+function validReference(reference: unknown): reference is string { return typeof reference === "string" && reference.length > 0 && reference.length <= 512 && !/[\0\r\n]/u.test(reference); }
+
 function splitTopLevel(value: string) {
   const items: string[] = []; let start = 0; let depth = 0; let quote = false;
   for (let index = 0; index < value.length; index += 1) {
@@ -71,26 +78,50 @@ export function compareSchemaSnapshots(source: SchemaSourceConfig, before: Schem
 }
 
 export class SchemaPlatform {
-  constructor(private root: string, private sources: SchemaSourceConfig[], private recentCommitCount = 30) {}
+  constructor(private root: string, private sources: SchemaSourceConfig[], private recentCommitCount = 30) {
+    const identifiers = new Set<string>();
+    for (const source of sources) {
+      if (typeof source.id !== "string" || !source.id.trim()) throw new SchemaPlatformError("SCHEMA_SOURCE_INVALID", "Schema source id is required", 500);
+      if (identifiers.has(source.id)) throw new SchemaPlatformError("SCHEMA_SOURCE_DUPLICATE", `Duplicate schema source id: ${source.id}`, 500);
+      identifiers.add(source.id);
+    }
+  }
   sourceList() { return this.sources.map(({ id, title, file, format }) => ({ id, title, file, format })); }
   async references(): Promise<SchemaReferences> {
-    const [{ stdout: branchOutput }, { stdout: commitOutput }] = await Promise.all([
-      execute("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: this.root }),
-      execute("git", ["log", `-${this.recentCommitCount}`, "--format=%H%x09%h%x09%cI%x09%s"], { cwd: this.root, maxBuffer: 2_000_000 }),
-    ]);
-    return { branches: branchOutput.trim().split("\n").filter(Boolean), commits: commitOutput.trim().split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }) };
+    try {
+      const limit = Math.max(1, Math.min(Number.isFinite(this.recentCommitCount) ? this.recentCommitCount : 30, 100));
+      const [{ stdout: branchOutput }, { stdout: commitOutput }] = await Promise.all([
+        execute("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: this.root }),
+        execute("git", ["log", `-${limit}`, "--format=%H%x09%h%x09%cI%x09%s"], { cwd: this.root, maxBuffer: 2_000_000 }),
+      ]);
+      return { branches: branchOutput.trim().split("\n").filter(Boolean), commits: commitOutput.trim().split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }) };
+    } catch { throw new SchemaPlatformError("SCHEMA_GIT_UNAVAILABLE", "Git references could not be read for schema comparison", 503); }
   }
-  private source(id: string) { const source = this.sources.find((item) => item.id === id); if (!source) throw new Error(`Unknown schema source: ${id}`); return source; }
+  private source(id: unknown) { if (typeof id !== "string" || !id) throw new SchemaPlatformError("SCHEMA_SOURCE_REQUIRED", "Schema source is required"); const source = this.sources.find((item) => item.id === id); if (!source) throw new SchemaPlatformError("SCHEMA_SOURCE_NOT_FOUND", `Unknown schema source: ${id}`, 404); return source; }
   private async snapshot(source: SchemaSourceConfig, reference: string) {
     const relative = source.file.replaceAll("\\", "/").replace(/^\.\//, ""); const absolute = path.resolve(this.root, relative);
-    if (!absolute.startsWith(`${path.resolve(this.root)}${path.sep}`)) throw new Error("Schema file must stay inside the workspace");
-    if (reference === "working") return parsePostgresDump(source.id, reference, "working tree", await readFile(absolute, "utf8"));
-    const { stdout: revision } = await execute("git", ["rev-parse", "--verify", `${reference}^{commit}`], { cwd: this.root });
-    const sha = revision.trim(); const { stdout } = await execute("git", ["show", `${sha}:${relative}`], { cwd: this.root, maxBuffer: 50_000_000 });
-    return parsePostgresDump(source.id, reference, sha, stdout);
+    if (!inside(this.root, absolute)) throw new SchemaPlatformError("SCHEMA_FILE_OUTSIDE_WORKSPACE", "Schema file must stay inside the workspace", 500);
+    if (!validReference(reference)) throw new SchemaPlatformError("SCHEMA_REFERENCE_INVALID", "Schema reference is invalid");
+    let sql: string; let revision: string;
+    if (reference === "working") {
+      revision = "working tree";
+      try { sql = await readFile(absolute, "utf8"); } catch { throw new SchemaPlatformError("SCHEMA_FILE_NOT_FOUND", `Schema file is not available in the working tree: ${relative}`, 404); }
+    } else {
+      let sha: string;
+      try { const result = await execute("git", ["rev-parse", "--verify", "--end-of-options", `${reference}^{commit}`], { cwd: this.root }); sha = result.stdout.trim(); }
+      catch { throw new SchemaPlatformError("SCHEMA_REFERENCE_NOT_FOUND", `Schema reference does not exist: ${reference}`, 404); }
+      revision = sha;
+      try { sql = (await execute("git", ["show", `${sha}:${relative}`], { cwd: this.root, maxBuffer: 50_000_000 })).stdout; }
+      catch { throw new SchemaPlatformError("SCHEMA_FILE_NOT_FOUND_AT_REFERENCE", `Schema file '${relative}' does not exist at ${reference}`, 404); }
+    }
+    const snapshot = parsePostgresDump(source.id, reference, revision, sql);
+    if (!snapshot.objects.length) throw new SchemaPlatformError("SCHEMA_DUMP_UNSUPPORTED", `No supported PostgreSQL schema objects were found in '${relative}' at ${reference}`, 422);
+    return snapshot;
   }
-  async compare(input: { sourceId: string; before?: string; after?: string }) {
-    const source = this.source(input.sourceId); const [before, after] = await Promise.all([this.snapshot(source, input.before ?? "HEAD"), this.snapshot(source, input.after ?? "working")]);
+  async compare(input: unknown) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new SchemaPlatformError("SCHEMA_REQUEST_INVALID", "Schema comparison request must be an object");
+    const request = input as { sourceId?: string; before?: string; after?: string };
+    const source = this.source(request.sourceId); const [before, after] = await Promise.all([this.snapshot(source, request.before ?? "HEAD"), this.snapshot(source, request.after ?? "working")]);
     return compareSchemaSnapshots(source, before, after);
   }
 }

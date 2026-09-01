@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SchemaWorkspace } from "./SchemaWorkspace";
+
+vi.mock("./SchemaGraph", () => ({ SchemaGraph: () => <div aria-label="Schema change graph"/> }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -14,6 +16,8 @@ describe("SchemaWorkspace", () => {
       return { ok: true, json: async () => body } as Response;
     }));
     render(<SchemaWorkspace/>);
+    expect(await screen.findByLabelText("Schema change graph")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Change list" }));
     expect(await screen.findByRole("button", { name: /jobs/u })).toBeTruthy();
     expect(screen.getByLabelText("Before schema reference")).toBeTruthy();
     expect(screen.getByLabelText("After schema reference")).toBeTruthy();
