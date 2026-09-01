@@ -1,5 +1,6 @@
 # Changelog
 
+- Apply scoped viewer styles to screenshot hover previews and full-screen lightboxes by rendering them inside the portal scope root.
 - Open marked screenshots in an image lightbox first and expose the Playwright interactive trace as a separate action.
 - Add semantic `baekstage.scenario.*` discovery, configurable include globs, and definition-relative Playwright sources for feature-folder scenarios.
 - Publish CommonJS entry points alongside ESM so Playwright can import `baekstage/playwright` from ordinary `.spec.ts` files.

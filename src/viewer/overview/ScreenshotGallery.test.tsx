@@ -19,6 +19,9 @@ describe("ScreenshotGallery", () => {
     await user.click(screen.getByAltText("Month-close contract boundary"));
     const lightbox = screen.getByRole("dialog", { name: "Month-close contract boundary" });
     expect(lightbox).toBeVisible();
+    expect(lightbox).toHaveClass("screenshot-lightbox");
+    expect(lightbox.parentElement).toHaveClass("baekstage-portal");
+    expect(lightbox).not.toHaveClass("baekstage-portal");
     expect(within(lightbox).getByRole("img", { name: "Month-close contract boundary" })).toHaveAttribute("src", "/scenario-results/month-close/1.png");
     expect(screen.queryByText("Interactive DOM snapshot")).not.toBeInTheDocument();
 
