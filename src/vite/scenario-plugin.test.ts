@@ -28,4 +28,14 @@ describe("Playwright result asset URLs", () => {
   it("cache-busts overwritten screenshots and traces with the run ID", () => {
     expect(resultAssetUrl("/scenario-results", "month-close", "1.png", "run/next")).toBe("/scenario-results/month-close/1.png?run=run%2Fnext");
   });
+
+  it("serves a cache-busted screenshot as an image instead of the Vite HTML fallback", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-result-assets-")); const resultRoot = path.join(root, "results"); let server: ViteDevServer | undefined;
+    try {
+      await mkdir(path.join(resultRoot, "month-close"), { recursive: true }); await writeFile(path.join(resultRoot, "month-close", "1.png"), Buffer.from([137, 80, 78, 71]));
+      server = await createViteServer({ root, configFile: false, logLevel: "silent", plugins: [baekstagePlugin({ projectRoot: root, resultRoot })], server: { host: "127.0.0.1", port: 0 } }); await server.listen(); const address = server.httpServer?.address(); const origin = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+      const response = await fetch(`${origin}${resultAssetUrl("/scenario-results", "month-close", "1.png", "run/next")}`);
+      expect(response.headers.get("content-type")).toBe("image/png"); expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([137, 80, 78, 71]);
+    } finally { await server?.close(); await rm(root, { recursive: true, force: true }); }
+  });
 });

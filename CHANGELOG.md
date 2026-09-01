@@ -1,5 +1,6 @@
 # Changelog
 
+- Serve cache-busted Playwright screenshots and traces from their real asset paths instead of falling through to the Vite HTML document.
 - Match Schema comparison controls to Review with separate Changes and Branches modes, keeping working-tree comparisons worktree-free.
 - Collapse the Map to Suite and Scenario summary nodes until a Scenario is selected, then expand only that Scenario's step graph.
 - Visualize semantic schema changes as an interactive impact graph with Table-centered object clusters, Foreign Key arrows, status colors, and click-through Before/After details.
