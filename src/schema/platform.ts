@@ -90,11 +90,12 @@ export class SchemaPlatform {
   async references(): Promise<SchemaReferences> {
     try {
       const limit = Math.max(1, Math.min(Number.isFinite(this.recentCommitCount) ? this.recentCommitCount : 30, 100));
-      const [{ stdout: branchOutput }, { stdout: commitOutput }] = await Promise.all([
+      const [{ stdout: branchOutput }, { stdout: currentBranchOutput }, { stdout: commitOutput }] = await Promise.all([
         execute("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: this.root }),
+        execute("git", ["branch", "--show-current"], { cwd: this.root }),
         execute("git", ["log", `-${limit}`, "--format=%H%x09%h%x09%cI%x09%s"], { cwd: this.root, maxBuffer: 2_000_000 }),
       ]);
-      return { branches: branchOutput.trim().split("\n").filter(Boolean), commits: commitOutput.trim().split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }) };
+      return { currentBranch: currentBranchOutput.trim() || undefined, branches: branchOutput.trim().split("\n").filter(Boolean), commits: commitOutput.trim().split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }) };
     } catch { throw new SchemaPlatformError("SCHEMA_GIT_UNAVAILABLE", "Git references could not be read for schema comparison", 503); }
   }
   private source(id: unknown) { if (typeof id !== "string" || !id) throw new SchemaPlatformError("SCHEMA_SOURCE_REQUIRED", "Schema source is required"); const source = this.sources.find((item) => item.id === id); if (!source) throw new SchemaPlatformError("SCHEMA_SOURCE_NOT_FOUND", `Unknown schema source: ${id}`, 404); return source; }

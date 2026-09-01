@@ -64,6 +64,20 @@ CREATE INDEX "users_email_idx" ON "public"."users" USING "btree" ("email");
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
+  it("identifies the current branch for Branches comparison defaults", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-schema-refs-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root }); execFileSync("git", ["config", "user.name", "Baekstage Test"], { cwd: root });
+      await writeFile(path.join(root, "db.sql"), dump("login_id")); execFileSync("git", ["add", "."], { cwd: root }); execFileSync("git", ["commit", "-m", "schema"], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["branch", "feature/schema-review"], { cwd: root });
+
+      const references = await new SchemaPlatform(root, [{ id: "tdp", title: "TDP", file: "db.sql", format: "postgres-dump" }]).references();
+      expect(references.currentBranch).toBe("main");
+      expect(references.branches).toEqual(["feature/schema-review", "main"]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("rejects duplicate source identifiers at startup", () => {
     expect(() => new SchemaPlatform("/tmp", [
       { id: "tdp", title: "One", file: "one.sql", format: "postgres-dump" },

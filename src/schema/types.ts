@@ -19,6 +19,7 @@ export type SchemaComparison = {
   changes: SchemaChange[];
 };
 export type SchemaReferences = {
+  currentBranch?: string;
   branches: string[];
   commits: Array<{ sha: string; shortSha: string; committedAt: string; subject: string }>;
 };

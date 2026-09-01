@@ -18,7 +18,7 @@ function edgeShots(shots: ScenarioArtifact[], edge: { id: string; source: string
   return shots.filter((shot) => artifactMatchesEdge(shot, edge, target));
 }
 
-function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "all" | "failed", screenshots: ScenarioArtifact[], selectedId?: string) {
+export function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "all" | "failed", screenshots: ScenarioArtifact[], selectedId?: string) {
   const nodes: NetworkNode[] = [{ id: "root", label: suite.name, kind: "root", color: "#f8fafc", size: 5 }];
   const links: NetworkLink[] = [];
   for (const scenario of suite.scenarios) {
@@ -28,7 +28,7 @@ function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "all" | "
     const failedCount = scenario.nodes.filter((node) => node.status === "failed").length;
     nodes.push({ id: rootId, label: scenario.title, subtitle: `${runCount} run · ${scenario.nodes.length} steps${failedCount ? ` · ${failedCount} failed` : ""}`, kind: "scenario", scenarioId: scenario.id, color: failed ? "#ef4444" : "#3b82f6", size: 5, failed });
     links.push({ source: "root", target: rootId, color: failed ? "#ef4444" : "#334155", width: failed ? 2 : 1.2 });
-    if (!depthLimit) continue;
+    if (!depthLimit || scenario.id !== selectedId) continue;
     const depths = new Map(scenario.nodes.map((node) => [node.id, 1]));
     for (let pass = 0; pass < scenario.nodes.length; pass += 1) for (const edge of scenario.edges) {
       const next = (depths.get(edge.source) ?? 1) + 1;

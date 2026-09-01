@@ -1,6 +1,6 @@
 {
   "name": "baekstage",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Connect UI, API, server, database, and worker tests in a scenario-centered workspace.",
   "license": "MIT",
   "keywords": [

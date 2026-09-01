@@ -1,5 +1,7 @@
 # Changelog
 
+- Match Schema comparison controls to Review with separate Changes and Branches modes, keeping working-tree comparisons worktree-free.
+- Collapse the Map to Suite and Scenario summary nodes until a Scenario is selected, then expand only that Scenario's step graph.
 - Visualize semantic schema changes as an interactive impact graph with Table-centered object clusters, Foreign Key arrows, status colors, and click-through Before/After details.
 - Classify invalid schema sources, references, missing dumps, and unsupported dumps with stable API errors instead of generic failures.
 - Preserve dirty, locked, or uninspectable managed worktrees, surface cleanup warnings, and reject stale or revision-mismatched detached previews.
