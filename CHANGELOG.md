@@ -1,5 +1,7 @@
 # Changelog
 
+- Add a Schema workspace that compares semantic PostgreSQL objects across the working tree, branches, and commits without creating worktrees.
+- Create revision previews as detached worktrees so Baekstage does not lock branches needed by ordinary `git switch` workflows, and safely release clean legacy branch locks.
 - Apply scoped viewer styles to screenshot hover previews and full-screen lightboxes by rendering them inside the portal scope root.
 - Open marked screenshots in an image lightbox first and expose the Playwright interactive trace as a separate action.
 - Add semantic `baekstage.scenario.*` discovery, configurable include globs, and definition-relative Playwright sources for feature-folder scenarios.

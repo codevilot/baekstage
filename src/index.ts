@@ -4,6 +4,7 @@ import "./viewer/status.css";
 import "./viewer/overview/overview-panel.css";
 import "./viewer/api/api.css";
 import "./viewer/visual/visual.css";
+import "./viewer/schema/schema.css";
 
 export { defineScenario, defineSuite, filterScenario, mergeResult, validateScenario } from "./core/scenario";
 export { normalizeExecution, mergeNodeResults, applyRunResult, normalizeRunResult } from "./core/execution";
@@ -19,3 +20,5 @@ export type { ScreenshotMark } from "./playwright/mark-screenshot";
 export { ScenarioViewer } from "./viewer/ScenarioViewer";
 export { SuiteGalaxy } from "./viewer/SuiteGalaxy";
 export { VisualWorkspace } from "./viewer/visual/VisualWorkspace";
+export { SchemaWorkspace } from "./viewer/schema/SchemaWorkspace";
+export type { SchemaChange, SchemaComparison, SchemaField, SchemaFieldChange, SchemaObject, SchemaReferences, SchemaSnapshot } from "./schema/types";

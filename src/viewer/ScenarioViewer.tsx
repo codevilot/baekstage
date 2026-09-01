@@ -18,8 +18,9 @@ import { useApiRun } from "../hooks/api/use-api-run";
 import { normalizeApiCases } from "../core/api-cases";
 import { useSuiteRun, type SuiteRunPolicy } from "../hooks/scenario/use-suite-run";
 import { VisualWorkspace } from "./visual/VisualWorkspace";
+import { SchemaWorkspace } from "./schema/SchemaWorkspace";
 
-type WorkspaceView = "map" | "scenario" | "catalog" | "review";
+type WorkspaceView = "map" | "scenario" | "catalog" | "review" | "schema";
 
 function scenarioName(title: string) {
   return title.replace(/^\d+\.\s*/, "");
@@ -126,7 +127,7 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
       onPolicy={setSuiteRunPolicy} onRunAll={(policy) => void suiteRun.run(runtimeSuite.scenarios, policy)} onStop={suiteRun.stop}
       onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth}
       onSelect={(id) => { setView("map"); selectScenario(id); }}/>} {/* Map-only scenario explorer */}
-    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1></div><nav className="workspace-tabs" aria-label="Workspace views"><button className={view === "map" || view === "scenario" ? "active" : ""} onClick={() => setView("map")}>Map</button><button aria-label="Catalog" className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>API</button><button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>Review</button></nav></header>
+    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1></div><nav className="workspace-tabs" aria-label="Workspace views"><button className={view === "map" || view === "scenario" ? "active" : ""} onClick={() => setView("map")}>Map</button><button aria-label="Catalog" className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>API</button><button className={view === "schema" ? "active" : ""} onClick={() => setView("schema")}>Schema</button><button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>Review</button></nav></header>
     {(view === "map" || (view === "scenario" && !selectedScenario)) && <div className="overview-workspace">
       <SuiteGalaxy suite={groupedSuite} selectedScenarioId={selectedScenarioId ?? undefined} selectedNodeId={mapNodeId ?? undefined} maxDetailDepth={maxDetailDepth} detailStatus={detailStatus} screenshots={screenshots} activeScreenshots={edgeScreenshots} onScreenshotsSelect={selectScreenshots} onSuiteSelect={() => { setSelectedScenarioId(null); setSuiteOpen(true); }} onScenarioSelect={selectScenario} onNodeSelect={inspectMapNode} onApiNodeSelect={openApiNode} onBackgroundClick={closePanels}/>
       <section className="galaxy-filters" aria-label="network graph filters"><div><span>Detail depth</span>{[0,1,2,3].map((depth) => <button className={maxDetailDepth === depth ? "active" : ""} onClick={() => setMaxDetailDepth(depth)} key={depth}>{depth === 0 ? "Main" : depth}</button>)}</div><div><span>Step status</span><button className={detailStatus === "all" ? "active" : ""} onClick={() => setDetailStatus("all")}>All</button><button className={detailStatus === "failed" ? "active" : ""} onClick={() => setDetailStatus("failed")}>Failed</button></div></section>
@@ -158,5 +159,6 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
     </div>}
     {view === "catalog" && <div className={`catalog-workspace ${selectedOperation ? "with-workbench" : "catalog-full"}`}><ApiCatalogView catalog={catalog} suite={runtimeSuite} selected={selectedOperation?.id} onSelect={setSelectedOperation}/>{selectedOperation && <ApiWorkbench operation={selectedOperation} scenario={linkedScenario} node={linkedNode} endpoint={options?.apiRunnerEndpoint} onResult={applyApiResult} onClose={() => setSelectedOperation(null)}/>}</div>}
     {view === "review" && <VisualWorkspace storybookEndpoint={options?.storybookEndpoint} reviewEndpoint={options?.reviewEndpoint} relatedStoryIds={relatedStoryIds} onResult={applyVisualResult}/>}
+    {view === "schema" && <SchemaWorkspace endpoint={options?.schemaEndpoint}/>}
   </main>;
 }

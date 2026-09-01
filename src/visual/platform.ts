@@ -164,6 +164,7 @@ async function packageManager(directory: string) {
 }
 
 export class WorktreeStorybookManager {
+  private readonly detachedPreviews = new Map<string, string>();
   private readonly processes = new Map<string, { child: ChildProcess; url: string; port: number }>();
   constructor(private readonly root: string) {}
   private async projectDirectory(worktreeRoot: string) {
@@ -196,16 +197,23 @@ export class WorktreeStorybookManager {
     const directory = await this.projectDirectory(worktreeRoot); const manager = await packageManager(directory);
     return { directory, worktreeRoot, branch, packageManager: manager.name, dependenciesInstalled: await this.ensureDependencies(directory), managed };
   }
-  async branches() { const output = await command(this.root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]); return output.split("\n").filter(Boolean); }
+  private async releaseLegacyBranchLocks() {
+    const legacy = (await listGitWorktrees(this.root)).filter((item) => item.managed && item.branch !== "detached" && !item.dirty);
+    for (const item of legacy) {
+      await this.stop(item.branch);
+      await command(this.root, ["worktree", "remove", item.directory]);
+    }
+  }
+  async branches() { await this.releaseLegacyBranchLocks(); const output = await command(this.root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]); return output.split("\n").filter(Boolean); }
   async commits(limit = 20) { const output = await command(this.root, ["log", `-${limit}`, "--pretty=format:%H%x09%h%x09%cI%x09%s"]); return output.split("\n").filter(Boolean).map((line) => { const [sha, shortSha, committedAt, ...subject] = line.split("\t"); return { sha, shortSha, committedAt, subject: subject.join("\t") }; }); }
   async create(branch: string) {
     if (!(await this.branches()).includes(branch)) throw new Error("Branch does not exist");
-    const checkedOut = (await listGitWorktrees(this.root)).find((item) => item.branch === branch);
-    if (checkedOut) return this.describeWorktree(checkedOut.directory, branch, checkedOut.managed);
-    const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", safe(branch));
-    const resolved = path.resolve(worktreeRoot); const managedRoot = path.resolve(this.root, ".baekstage", "worktrees");
+    const sha = await command(this.root, ["rev-parse", "--verify", `${branch}^{commit}`]);
+    const worktreeRoot = path.join(this.root, ".baekstage", "worktrees", "previews", `${safe(branch)}-${sha.slice(0, 12)}`);
+    const resolved = path.resolve(worktreeRoot); const managedRoot = path.resolve(this.root, ".baekstage", "worktrees", "previews");
     if (!resolved.startsWith(`${managedRoot}${path.sep}`)) throw new Error("Unsafe worktree path");
-    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", worktreeRoot, branch]); }
+    if (!existsSync(worktreeRoot)) { await mkdir(path.dirname(worktreeRoot), { recursive: true }); await command(this.root, ["worktree", "add", "--detach", worktreeRoot, sha]); }
+    this.detachedPreviews.set(branch, worktreeRoot);
     return this.describeWorktree(worktreeRoot, branch, true);
   }
   async start(branch: string) {
@@ -231,9 +239,9 @@ export class WorktreeStorybookManager {
   }
   async stop(branch: string) { const key = `branch:${branch}`; const preview = this.processes.get(key); if (preview && preview.child.exitCode === null) preview.child.kill("SIGTERM"); this.processes.delete(key); }
   async remove(branch: string) {
-    const worktrees = await listGitWorktrees(this.root); const item = worktrees.find((candidate) => candidate.branch === branch && candidate.managed);
-    if (!item) throw new Error("Only Baekstage-managed worktrees can be removed"); if (item.dirty) throw new Error("Worktree has uncommitted changes and was not removed");
-    await this.stop(branch); await command(this.root, ["worktree", "remove", item.directory]); return { removed: true, directory: item.directory };
+    const directory = this.detachedPreviews.get(branch); if (!directory) throw new Error("Only a Baekstage-managed preview can be removed");
+    const dirty = !!await command(directory, ["status", "--porcelain"]).catch(() => ""); if (dirty) throw new Error("Preview has uncommitted changes and was not removed");
+    await this.stop(branch); await command(this.root, ["worktree", "remove", directory]); this.detachedPreviews.delete(branch); return { removed: true, directory };
   }
   close() { for (const [key, preview] of this.processes) { if (preview.child.exitCode === null) preview.child.kill("SIGTERM"); this.processes.delete(key); } }
 }

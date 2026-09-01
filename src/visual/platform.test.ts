@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -35,7 +36,7 @@ describe("Storybook visual platform", () => {
 });
 
 describe("worktree Storybook manager", () => {
-  test("links dependencies into an existing branch worktree", async () => {
+  test("uses a detached preview so the compared branch remains switchable", async () => {
     const repository = await mkdtemp(path.join(tmpdir(), "baekstage-worktree-"));
     try {
       execFileSync("git", ["init", "-b", "main"], { cwd: repository, stdio: "ignore" });
@@ -47,15 +48,32 @@ describe("worktree Storybook manager", () => {
       execFileSync("git", ["add", "."], { cwd: repository }); execFileSync("git", ["commit", "-m", "initial"], { cwd: repository, stdio: "ignore" }); execFileSync("git", ["branch", "feature"], { cwd: repository });
       const dependencyRoot = path.join(repository, "tdp-web", "node_modules");
       await mkdir(path.join(dependencyRoot, ".bin"), { recursive: true }); await writeFile(path.join(dependencyRoot, ".bin", "storybook"), "");
-      const worktreeRoot = path.join(repository, ".baekstage", "worktrees", "feature");
-      await mkdir(path.dirname(worktreeRoot), { recursive: true }); execFileSync("git", ["worktree", "add", worktreeRoot, "feature"], { cwd: repository, stdio: "ignore" });
-
       const created = await new WorktreeStorybookManager(repository).create("feature");
 
-      const linked = path.join(worktreeRoot, "tdp-web", "node_modules");
+      const linked = path.join(created.worktreeRoot!, "tdp-web", "node_modules");
       expect(created.dependenciesInstalled).toBe(true);
       expect((await lstat(linked)).isSymbolicLink()).toBe(true);
       expect(await readlink(linked)).toBe(dependencyRoot);
+      expect(execFileSync("git", ["branch", "--show-current"], { cwd: created.worktreeRoot!, encoding: "utf8" }).trim()).toBe("");
+      execFileSync("git", ["switch", "feature"], { cwd: repository, stdio: "ignore" });
+      expect(execFileSync("git", ["branch", "--show-current"], { cwd: repository, encoding: "utf8" }).trim()).toBe("feature");
+    } finally { await rm(repository, { recursive: true, force: true }); }
+  });
+
+  test("releases clean legacy branch worktrees before listing previews", async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), "baekstage-legacy-worktree-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: repository, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+      execFileSync("git", ["config", "user.name", "Baekstage Test"], { cwd: repository });
+      await writeFile(path.join(repository, "README.md"), "fixture");
+      execFileSync("git", ["add", "."], { cwd: repository }); execFileSync("git", ["commit", "-m", "initial"], { cwd: repository, stdio: "ignore" }); execFileSync("git", ["branch", "feature"], { cwd: repository });
+      const legacy = path.join(repository, ".baekstage", "worktrees", "feature"); await mkdir(path.dirname(legacy), { recursive: true }); execFileSync("git", ["worktree", "add", legacy, "feature"], { cwd: repository, stdio: "ignore" });
+
+      await new WorktreeStorybookManager(repository).branches();
+
+      expect(existsSync(legacy)).toBe(false);
+      execFileSync("git", ["switch", "feature"], { cwd: repository, stdio: "ignore" });
     } finally { await rm(repository, { recursive: true, force: true }); }
   });
 });

@@ -16,7 +16,8 @@ import { matchResponseBranch, classifyApiTest, matchObservedApiCase } from "../c
 import { evaluateApiAssertions } from "../core/assertions";
 import { validateOpenApiSchema } from "./openapi-schema-validator";
 import { StorybookVisualPlatform, WorktreeStorybookManager, listGitWorktrees } from "../visual/platform";
-import type { StorybookSourceConfig } from "../config";
+import type { SchemaSourceConfig, StorybookSourceConfig } from "../config";
+import { SchemaPlatform } from "../schema/platform";
 
 type Item = Record<string, unknown>;
 type Shot = { label: string; url: string; traceUrl?: string; scenarioId?: string; nodeId?: string; edgeId?: string; fromNodeId?: string; toNodeId?: string; category?: string; branch?: string; important?: boolean; checkpoint?: boolean; target?: string };
@@ -39,6 +40,8 @@ export type BaekstagePluginOptions = {
   redactKeys?: string[];
   storybookSources?: StorybookSourceConfig[];
   visual?: { viewport?: { width: number; height: number }; deviceScaleFactor?: number; locale?: string; timezoneId?: string; threshold?: number };
+  schemaSources?: SchemaSourceConfig[];
+  schemaRecentCommits?: number;
 };
 
 const cleanBase = (value: string) => `/${value.replace(/^\/+|\/+$/g, "")}`;
@@ -90,6 +93,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   const apiAdapter = new ApiExecutionAdapter(options.apiSources ?? [], catalog.operations, { timeoutMs: options.apiTimeoutMs, maxResponseBytes: options.apiMaxResponseBytes });
   const visualPlatform = new StorybookVisualPlatform(workspaceRoot, options.storybookSources ?? [], options.visual);
   const worktreeManager = new WorktreeStorybookManager(workspaceRoot);
+  const schemaPlatform = new SchemaPlatform(workspaceRoot, options.schemaSources ?? [], options.schemaRecentCommits);
   if (!existsSync(projectRoot)) throw new Error(`Playwright projectRoot does not exist: ${projectRoot}`);
   async function saveArtifacts(id: string, report: unknown, runId: string) {
     const directory = path.join(resultRoot, id); await mkdir(directory, { recursive: true });
@@ -142,6 +146,15 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   async function saveHistoryRun(result: ScenarioRunResult, nodeId: string) { const directory = historyDirectory(result.scenarioId, nodeId); const previous = historyWrites.get(directory) ?? Promise.resolve(); const current = previous.catch(() => {}).then(async () => { await mkdir(directory, { recursive: true }); await atomicJson(path.join(directory, `${safeSegment(result.runId)}.json`), result); const files = (await readdir(directory)).filter((file) => file.endsWith(".json")); const max = Math.max(1, options.maxRunsPerNode ?? 50); if (files.length > max) { const ordered = await Promise.all(files.map(async (file) => ({ file, time: (await stat(path.join(directory, file))).mtimeMs }))); for (const item of ordered.sort((a, b) => a.time - b.time).slice(0, files.length - max)) await unlink(path.join(directory, item.file)); } }); historyWrites.set(directory, current); try { await current; } finally { if (historyWrites.get(directory) === current) historyWrites.delete(directory); } }
   async function apiHistory(scenarioId: string, nodeId: string) { const directory = historyDirectory(scenarioId, nodeId); if (!existsSync(directory)) return []; const files = (await readdir(directory)).filter((file) => file.endsWith(".json")); const results: ScenarioRunResult[] = []; for (const file of files) try { results.push(redactEvidence(JSON.parse(await readFile(path.join(directory, file), "utf8")), options.redactKeys)); } catch {} return results.sort((left, right) => left.finishedAt.localeCompare(right.finishedAt)); }
   return { name: "baekstage", configureServer(server) {
+    server.middlewares.use("/api/schema", async (req, res) => {
+      try {
+        const url = new URL(req.url ?? "/", "http://baekstage.local");
+        if (req.method === "GET" && url.pathname === "/sources") return json(res, 200, schemaPlatform.sourceList());
+        if (req.method === "GET" && url.pathname === "/references") return json(res, 200, await schemaPlatform.references());
+        if (req.method === "POST" && url.pathname === "/compare") return json(res, 200, await schemaPlatform.compare(await requestBody(req)));
+        return json(res, 405, { error: "Method not allowed" });
+      } catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : String(error) }); }
+    });
     server.middlewares.use("/api/storybook", async (req, res) => {
       try {
         const url = new URL(req.url ?? "/", "http://baekstage.local");

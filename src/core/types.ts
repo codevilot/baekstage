@@ -262,6 +262,7 @@ export type ScenarioViewerOptions = {
   apiRunnerEndpoint?: string;
   storybookEndpoint?: string;
   reviewEndpoint?: string;
+  schemaEndpoint?: string;
 };
 
 export type OpenApiParameter = { name: string; in: "path" | "query" | "header" | "cookie"; required?: boolean; description?: string; schema?: unknown; example?: unknown };

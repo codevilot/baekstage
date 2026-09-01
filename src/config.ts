@@ -2,6 +2,7 @@ import type { ScenarioSuite } from "./core/types";
 
 export type OpenApiSourceConfig = { id: string; title: string; file: string; baseUrl?: string; environments?: Record<string, string> };
 export type StorybookSourceConfig = { id: string; url: string; title?: string; branch?: string };
+export type SchemaSourceConfig = { id: string; title: string; file: string; format: "postgres-dump" };
 export type WebServerConfig = {
   command: string;
   /** Use an available loopback port and replace `{port}` in command, url, and env values. */
@@ -31,6 +32,8 @@ export type BaekstageConfig = {
   suite?: ScenarioSuite;
   discovery?: ScenarioDiscoveryConfig;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };
+  /** Canonical schema snapshots that can be compared across Git revisions. */
+  schema?: { sources: SchemaSourceConfig[]; recentCommits?: number };
   visual?: {
     viewport?: { width: number; height: number };
     deviceScaleFactor?: number;
