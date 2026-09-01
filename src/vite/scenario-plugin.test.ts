@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { parseOpenApiDocument } from "../openapi/catalog";
-import { baekstagePlugin } from "./scenario-plugin";
+import { baekstagePlugin, resultAssetUrl } from "./scenario-plugin";
 import type { ScenarioSuite } from "../core/types";
 
 describe("Vite API runner integration", () => {
@@ -21,5 +21,11 @@ describe("Vite API runner integration", () => {
     const payload = { sourceId: "api", operationId: operation.id, scenarioId: "scenario", nodeId: "api-node", caseId: "conflict", path: { id: "conflict" } }; await Promise.all([1, 2, 3].map(() => fetch(`${origin}/api/operations/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }))); const directory = path.join(root, "results", "scenario", "api", "api-node"); await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, "broken.json"), "{partial"); const retained = await (await fetch(`${origin}/api/operations/history/scenario/api-node`)).json(); expect(retained).toHaveLength(2); expect(retained[0].finishedAt <= retained[1].finishedAt).toBe(true);
     const traversal = await fetch(`${origin}/api/operations/history/${encodeURIComponent("../../outside")}/${encodeURIComponent("../node")}`); expect(traversal.status).toBe(200);
     const denied = await fetch(`${origin}/api/operations/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId: "api", operationId: operation.id, scenarioId: "scenario", nodeId: "other" }) }); expect(denied.status).toBe(403);
+  });
+});
+
+describe("Playwright result asset URLs", () => {
+  it("cache-busts overwritten screenshots and traces with the run ID", () => {
+    expect(resultAssetUrl("/scenario-results", "month-close", "1.png", "run/next")).toBe("/scenario-results/month-close/1.png?run=run%2Fnext");
   });
 });

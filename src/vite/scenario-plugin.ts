@@ -42,6 +42,7 @@ export type BaekstagePluginOptions = {
 };
 
 const cleanBase = (value: string) => `/${value.replace(/^\/+|\/+$/g, "")}`;
+export const resultAssetUrl = (assetBase: string, scenarioId: string, name: string, runId: string) => `${assetBase}/${scenarioId}/${name}?run=${encodeURIComponent(runId)}`;
 function json(res: import("node:http").ServerResponse, status: number, value: unknown) { res.writeHead(status, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(value)); }
 async function requestBody(req: import("node:http").IncomingMessage, limit = 1_000_000) { if (Number(req.headers["content-length"] ?? 0) > limit) throw new ApiExecutionError("Request body exceeded the configured size limit", 413); const chunks: Buffer[] = []; let size = 0; for await (const chunk of req) { const value = Buffer.from(chunk); size += value.length; if (size > limit) throw new ApiExecutionError("Request body exceeded the configured size limit", 413); chunks.push(value); } return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
 function attachmentGroups(value: unknown, found: Item[][] = []) {
@@ -90,19 +91,19 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   const visualPlatform = new StorybookVisualPlatform(workspaceRoot, options.storybookSources ?? [], options.visual);
   const worktreeManager = new WorktreeStorybookManager(workspaceRoot);
   if (!existsSync(projectRoot)) throw new Error(`Playwright projectRoot does not exist: ${projectRoot}`);
-  async function saveArtifacts(id: string, report: unknown) {
+  async function saveArtifacts(id: string, report: unknown, runId: string) {
     const directory = path.join(resultRoot, id); await mkdir(directory, { recursive: true });
     const screenshots: Shot[] = [], traces: Array<{ label: string; url: string }> = [], networks: Array<{ scenarioId: string; records: ObservedNetworkRecord[] }> = [];
     for (const group of attachmentGroups(report)) {
       for (const item of group) { const meta = readNetworkAttachmentName(String(item.name ?? "")); if (!meta) continue; try { let raw = ""; if (typeof item.path === "string" && existsSync(item.path)) raw = await readFile(item.path, "utf8"); else if (typeof item.body === "string") { try { raw = Buffer.from(item.body, "base64").toString("utf8"); JSON.parse(raw); } catch { raw = item.body; } } const records = redactEvidence(JSON.parse(raw), options.redactKeys); if (Array.isArray(records)) networks.push({ scenarioId: meta.scenarioId, records }); } catch {} }
       const trace = group.find((item) => item.name === "trace" || String(item.contentType).includes("zip"));
       let traceUrl: string | undefined;
-      if (trace) { const name = `trace-${traces.length + 1}.zip`; if (await copyAttachment(trace, path.join(directory, name))) { traceUrl = `${assetBase}/${id}/${name}`; traces.push({ label: String(trace.name ?? "Trace"), url: traceUrl }); } }
+      if (trace) { const name = `trace-${traces.length + 1}.zip`; if (await copyAttachment(trace, path.join(directory, name))) { traceUrl = resultAssetUrl(assetBase, id, name, runId); traces.push({ label: String(trace.name ?? "Trace"), url: traceUrl }); } }
       for (const item of group.filter((entry) => String(entry.contentType).startsWith("image/"))) {
         const extension = String(item.contentType).includes("jpeg") ? "jpg" : "png"; const name = `${screenshots.length + 1}.${extension}`;
         if (!await copyAttachment(item, path.join(directory, name))) continue;
         const rawLabel = String(item.name ?? `Screenshot ${screenshots.length + 1}`); const mark = readScreenshotMark(rawLabel);
-        screenshots.push({ label: mark?.label ?? rawLabel, url: `${assetBase}/${id}/${name}`, traceUrl, ...(mark ?? {}) });
+        screenshots.push({ label: mark?.label ?? rawLabel, url: resultAssetUrl(assetBase, id, name, runId), traceUrl, ...(mark ?? {}) });
       }
     }
     return { screenshots, traces, networks };
@@ -130,7 +131,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
     const result = await run(command, [...prefix, ...(relative ? [relative] : []), "--reporter=json", "--trace=on", ...(grep ? ["--grep", grep] : [])], projectRoot, options.env ?? {});
     const start = result.stdout.indexOf("{"); const end = result.stdout.lastIndexOf("}"); let report: unknown = {};
     if (start >= 0 && end > start) try { report = JSON.parse(result.stdout.slice(start, end + 1)); } catch { report = {}; }
-    const captured = await saveArtifacts(id, report); const finishedAt = new Date().toISOString(); const nodeResults = observedNodeResults(captured.networks, runId, startedAt, finishedAt); const manifest: ScenarioRunResult = { runId, origin: "playwright", scenarioId: id, adapter: "playwright", status: result.code === 0 && !nodeResults.some((item) => item.status === "failed") ? "passed" : "failed", screenshots: captured.screenshots, traces: captured.traces, nodeResults, output: result.code === 0 ? "" : redactText(failureOutput(report, result.stderr)), startedAt, finishedAt };
+    const captured = await saveArtifacts(id, report, runId); const finishedAt = new Date().toISOString(); const nodeResults = observedNodeResults(captured.networks, runId, startedAt, finishedAt); const manifest: ScenarioRunResult = { runId, origin: "playwright", scenarioId: id, adapter: "playwright", status: result.code === 0 && !nodeResults.some((item) => item.status === "failed") ? "passed" : "failed", screenshots: captured.screenshots, traces: captured.traces, nodeResults, output: result.code === 0 ? "" : redactText(failureOutput(report, result.stderr)), startedAt, finishedAt };
     await mkdir(path.join(resultRoot, id), { recursive: true }); await atomicJson(path.join(resultRoot, id, "manifest.json"), manifest); for (const nodeId of new Set(nodeResults.map((item) => item.nodeId))) await saveHistoryRun(manifest, nodeId); return manifest;
   }
   const playwrightAdapter = new PlaywrightExecutionAdapter(execute);
