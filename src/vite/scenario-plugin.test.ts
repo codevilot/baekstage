@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { parseOpenApiDocument } from "../openapi/catalog";
-import { baekstagePlugin, resultAssetUrl } from "./scenario-plugin";
+import { baekstagePlugin, playwrightStepNodeResults, resultAssetUrl } from "./scenario-plugin";
 import type { ScenarioSuite } from "../core/types";
 
 describe("Vite API runner integration", () => {
@@ -25,6 +25,12 @@ describe("Vite API runner integration", () => {
 });
 
 describe("Playwright result asset URLs", () => {
+  it("applies a completed terminal branch step without requiring an API request or outgoing edge", () => {
+    const suite: ScenarioSuite = { name: "Branch", scenarios: [{ id: "branch", title: "Branch", nodes: [1, 2, 3, 4, 5].map((id) => ({ id: String(id), title: String(id), kind: "screen" as const })), edges: [{ id: "1-2", source: "1", target: "2" }, { id: "2-3", source: "2", target: "3" }, { id: "3-4", source: "3", target: "4", branch: true }, { id: "3-5", source: "3", target: "5", branch: true }] }] };
+    const results = playwrightStepNodeResults([{ scenarioId: "branch", records: [{ marker: { id: "5" }, status: "passed", startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z", durationMs: 1_000 }] }], suite, "run-branch");
+    expect(results).toEqual([{ runId: "run-branch", origin: "playwright", nodeId: "5", caseId: undefined, status: "passed", durationMs: 1_000, startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z", error: undefined }]);
+  });
+
   it("cache-busts overwritten screenshots and traces with the run ID", () => {
     expect(resultAssetUrl("/scenario-results", "month-close", "1.png", "run/next")).toBe("/scenario-results/month-close/1.png?run=run%2Fnext");
   });

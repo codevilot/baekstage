@@ -1,5 +1,6 @@
 # Changelog
 
+- Record successful and failed Playwright `observer.step()` executions as node results even when a branch ends without an OpenAPI request.
 - Serve cache-busted Playwright screenshots and traces from their real asset paths instead of falling through to the Vite HTML document.
 - Match Schema comparison controls to Review with separate Changes and Branches modes, keeping working-tree comparisons worktree-free.
 - Collapse the Map to Suite and Scenario summary nodes until a Scenario is selected, then expand only that Scenario's step graph.

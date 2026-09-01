@@ -58,8 +58,8 @@ CREATE INDEX "users_email_idx" ON "public"."users" USING "btree" ("email");
       await writeFile(path.join(root, "db.sql"), dump("login_id"));
       const platform = new SchemaPlatform(root, [{ id: "tdp", title: "TDP", file: "db.sql", format: "postgres-dump" }]);
 
-      await expect(platform.compare({ sourceId: "tdp", before: "missing-branch", after: "working" })).rejects.toMatchObject<Partial<SchemaPlatformError>>({ code: "SCHEMA_REFERENCE_NOT_FOUND", status: 404 });
-      await expect(platform.compare({ sourceId: "tdp", before: "HEAD", after: "working" })).rejects.toMatchObject<Partial<SchemaPlatformError>>({ code: "SCHEMA_FILE_NOT_FOUND_AT_REFERENCE", status: 404 });
+      await expect(platform.compare({ sourceId: "tdp", before: "missing-branch", after: "working" })).rejects.toMatchObject({ code: "SCHEMA_REFERENCE_NOT_FOUND", status: 404 } satisfies Partial<SchemaPlatformError>);
+      await expect(platform.compare({ sourceId: "tdp", before: "HEAD", after: "working" })).rejects.toMatchObject({ code: "SCHEMA_FILE_NOT_FOUND_AT_REFERENCE", status: 404 } satisfies Partial<SchemaPlatformError>);
       expect(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" }).match(/^worktree /gmu)).toHaveLength(1);
     } finally { await rm(root, { recursive: true, force: true }); }
   });

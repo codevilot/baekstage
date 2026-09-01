@@ -173,6 +173,7 @@ export type ObservedApiResponse = {
 
 export type NetworkMatchStatus = "matched" | "ambiguous" | "undocumented" | "ignored";
 export type NetworkStepMarker = { id: string; fromNodeId?: string; toNodeId?: string; edgeId?: string; operationId?: string; caseId?: string; sourceId?: string };
+export type ObservedPlaywrightStep = { marker: NetworkStepMarker; status: "passed" | "failed"; startedAt: string; finishedAt: string; durationMs: number; error?: string };
 export type ApiExecutionEvidence = { request: ObservedApiRequest; response?: ObservedApiResponse; operationMatch?: NetworkMatchStatus; operationCandidates?: string[]; step?: NetworkStepMarker; caseMatch?: "matched" | "ambiguous" | "observed-only" };
 export type ObservedNetworkRecord = { request: ObservedApiRequest; response?: Omit<ObservedApiResponse, "documented" | "matchType">; error?: string; step?: NetworkStepMarker; matchStatus?: NetworkMatchStatus; includeSourceIds?: string[] };
 

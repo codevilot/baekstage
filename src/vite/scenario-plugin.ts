@@ -5,12 +5,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
 import { readScreenshotMark } from "../playwright/mark-screenshot";
-import type { ApiAssertion, ObservedNetworkRecord, OpenApiCatalog, ScenarioNodeResult, ScenarioRunResult, ScenarioSuite } from "../core/types";
+import type { ApiAssertion, ObservedNetworkRecord, ObservedPlaywrightStep, OpenApiCatalog, ScenarioNodeResult, ScenarioRunResult, ScenarioSuite } from "../core/types";
 import { ApiExecutionAdapter, ApiExecutionError, type ApiRunInput, type ApiSourceRuntime } from "./api-execution-adapter";
 import { PlaywrightExecutionAdapter } from "./playwright-execution-adapter";
 import { normalizeApiCases } from "../core/api-cases";
 import { redactEvidence, redactText } from "../core/security";
-import { readNetworkAttachmentName } from "../playwright/observe-api-scenario";
+import { readNetworkAttachmentName, readStepAttachmentName } from "../playwright/observe-api-scenario";
 import { matchNetworkOperation } from "../openapi/network-match";
 import { matchResponseBranch, classifyApiTest, matchObservedApiCase } from "../core/api-response";
 import { evaluateApiAssertions } from "../core/assertions";
@@ -46,6 +46,20 @@ export type BaekstagePluginOptions = {
 
 const cleanBase = (value: string) => `/${value.replace(/^\/+|\/+$/g, "")}`;
 export const resultAssetUrl = (assetBase: string, scenarioId: string, name: string, runId: string) => `${assetBase}/${scenarioId}/${name}?run=${encodeURIComponent(runId)}`;
+export function playwrightStepNodeResults(observations: Array<{ scenarioId: string; records: ObservedPlaywrightStep[] }>, suite: ScenarioSuite | undefined, runId: string): ScenarioNodeResult[] {
+  const results: ScenarioNodeResult[] = [];
+  for (const observation of observations) {
+    const scenario = suite?.scenarios.find((item) => item.id === observation.scenarioId);
+    if (!scenario) continue;
+    for (const record of observation.records) {
+      const nodeId = record.marker.toNodeId ?? record.marker.id;
+      const node = scenario.nodes.find((item) => item.id === nodeId);
+      if (!node || node.kind === "api") continue;
+      results.push({ runId, origin: "playwright", nodeId, caseId: record.marker.caseId, status: record.status, durationMs: record.durationMs, startedAt: record.startedAt, finishedAt: record.finishedAt, error: record.error });
+    }
+  }
+  return results;
+}
 function json(res: import("node:http").ServerResponse, status: number, value: unknown) { res.writeHead(status, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(value)); }
 async function requestBody(req: import("node:http").IncomingMessage, limit = 1_000_000) { if (Number(req.headers["content-length"] ?? 0) > limit) throw new ApiExecutionError("Request body exceeded the configured size limit", 413); const chunks: Buffer[] = []; let size = 0; for await (const chunk of req) { const value = Buffer.from(chunk); size += value.length; if (size > limit) throw new ApiExecutionError("Request body exceeded the configured size limit", 413); chunks.push(value); } return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
 function attachmentGroups(value: unknown, found: Item[][] = []) {
@@ -97,9 +111,9 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   if (!existsSync(projectRoot)) throw new Error(`Playwright projectRoot does not exist: ${projectRoot}`);
   async function saveArtifacts(id: string, report: unknown, runId: string) {
     const directory = path.join(resultRoot, id); await mkdir(directory, { recursive: true });
-    const screenshots: Shot[] = [], traces: Array<{ label: string; url: string }> = [], networks: Array<{ scenarioId: string; records: ObservedNetworkRecord[] }> = [];
+    const screenshots: Shot[] = [], traces: Array<{ label: string; url: string }> = [], networks: Array<{ scenarioId: string; records: ObservedNetworkRecord[] }> = [], steps: Array<{ scenarioId: string; records: ObservedPlaywrightStep[] }> = [];
     for (const group of attachmentGroups(report)) {
-      for (const item of group) { const meta = readNetworkAttachmentName(String(item.name ?? "")); if (!meta) continue; try { let raw = ""; if (typeof item.path === "string" && existsSync(item.path)) raw = await readFile(item.path, "utf8"); else if (typeof item.body === "string") { try { raw = Buffer.from(item.body, "base64").toString("utf8"); JSON.parse(raw); } catch { raw = item.body; } } const records = redactEvidence(JSON.parse(raw), options.redactKeys); if (Array.isArray(records)) networks.push({ scenarioId: meta.scenarioId, records }); } catch {} }
+      for (const item of group) { const name = String(item.name ?? ""); const networkMeta = readNetworkAttachmentName(name); const stepMeta = readStepAttachmentName(name); if (!networkMeta && !stepMeta) continue; try { let raw = ""; if (typeof item.path === "string" && existsSync(item.path)) raw = await readFile(item.path, "utf8"); else if (typeof item.body === "string") { try { raw = Buffer.from(item.body, "base64").toString("utf8"); JSON.parse(raw); } catch { raw = item.body; } } const records = redactEvidence(JSON.parse(raw), options.redactKeys); if (!Array.isArray(records)) continue; if (networkMeta) networks.push({ scenarioId: networkMeta.scenarioId, records }); else if (stepMeta) steps.push({ scenarioId: stepMeta.scenarioId, records }); } catch {} }
       const trace = group.find((item) => item.name === "trace" || String(item.contentType).includes("zip"));
       let traceUrl: string | undefined;
       if (trace) { const name = `trace-${traces.length + 1}.zip`; if (await copyAttachment(trace, path.join(directory, name))) { traceUrl = resultAssetUrl(assetBase, id, name, runId); traces.push({ label: String(trace.name ?? "Trace"), url: traceUrl }); } }
@@ -110,7 +124,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         screenshots.push({ label: mark?.label ?? rawLabel, url: resultAssetUrl(assetBase, id, name, runId), traceUrl, ...(mark ?? {}) });
       }
     }
-    return { screenshots, traces, networks };
+    return { screenshots, traces, networks, steps };
   }
   function observedNodeResults(networks: Array<{ scenarioId: string; records: ObservedNetworkRecord[] }>, runId: string, startedAt: string, finishedAt: string): ScenarioNodeResult[] {
     const results: ScenarioNodeResult[] = [];
@@ -135,7 +149,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
     const result = await run(command, [...prefix, ...(relative ? [relative] : []), "--reporter=json", "--trace=on", ...(grep ? ["--grep", grep] : [])], projectRoot, options.env ?? {});
     const start = result.stdout.indexOf("{"); const end = result.stdout.lastIndexOf("}"); let report: unknown = {};
     if (start >= 0 && end > start) try { report = JSON.parse(result.stdout.slice(start, end + 1)); } catch { report = {}; }
-    const captured = await saveArtifacts(id, report, runId); const finishedAt = new Date().toISOString(); const nodeResults = observedNodeResults(captured.networks, runId, startedAt, finishedAt); const manifest: ScenarioRunResult = { runId, origin: "playwright", scenarioId: id, adapter: "playwright", status: result.code === 0 && !nodeResults.some((item) => item.status === "failed") ? "passed" : "failed", screenshots: captured.screenshots, traces: captured.traces, nodeResults, output: result.code === 0 ? "" : redactText(failureOutput(report, result.stderr)), startedAt, finishedAt };
+    const captured = await saveArtifacts(id, report, runId); const finishedAt = new Date().toISOString(); const nodeResults = [...playwrightStepNodeResults(captured.steps, options.suite, runId), ...observedNodeResults(captured.networks, runId, startedAt, finishedAt)]; const manifest: ScenarioRunResult = { runId, origin: "playwright", scenarioId: id, adapter: "playwright", status: result.code === 0 && !nodeResults.some((item) => item.status === "failed") ? "passed" : "failed", screenshots: captured.screenshots, traces: captured.traces, nodeResults, output: result.code === 0 ? "" : redactText(failureOutput(report, result.stderr)), startedAt, finishedAt };
     await mkdir(path.join(resultRoot, id), { recursive: true }); await atomicJson(path.join(resultRoot, id, "manifest.json"), manifest); for (const nodeId of new Set(nodeResults.map((item) => item.nodeId))) await saveHistoryRun(manifest, nodeId); return manifest;
   }
   const playwrightAdapter = new PlaywrightExecutionAdapter(execute);

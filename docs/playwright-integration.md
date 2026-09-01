@@ -43,9 +43,13 @@ test("retry-failed-export", async ({ page, baekstage }) => {
 ```
 
 Only requests started inside an explicit `step()` receive that marker, and one step may
-own multiple requests. Excluded requests are ignored. Hints narrow matching; multiple
-remaining candidates stay ambiguous. `markNode()` can label requests collected since
-the previous mark, but `step()` is preferred.
+own multiple requests. A completed `step()` also records a passed or failed result for
+the non-API graph node identified by `toNodeId`, or by `id` when `toNodeId` is omitted.
+This includes terminal UI, assertion, and outcome nodes with no outgoing edge or API
+request. API nodes still require observed network evidence. Excluded requests are
+ignored. Hints narrow matching; multiple remaining candidates stay ambiguous.
+`markNode()` can label requests collected since the previous mark, but does not record
+step completion, so `step()` is preferred.
 
 The observer covers only the supplied page. Popups/new pages need a separate observer.
 Service-worker attribution, WebSocket, SSE stream bodies, and Trace ZIP network
