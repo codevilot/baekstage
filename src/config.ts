@@ -16,6 +16,8 @@ export type WebServerConfig = {
 export type ScenarioDiscoveryConfig = {
   /** Directory to search, relative to the directory where Baekstage is run. */
   root?: string;
+  /** Definition globs relative to root. Defaults to legacy `*.baekstage.*` and semantic `baekstage.scenario.*` files. */
+  include?: string[];
   /** Directory names or root-relative directory paths to skip. */
   exclude?: string[];
   /** Skip directories that cannot be read because of filesystem permissions. */
@@ -25,7 +27,7 @@ export type ScenarioDiscoveryConfig = {
 export type BaekstageConfig = {
   /** Optional dotenv file, resolved from the config working directory. */
   envFile?: string;
-  /** Optional when scenarios are discovered from files ending in `.baekstage.*`. */
+  /** Optional when scenarios are discovered from configured definition files. */
   suite?: ScenarioSuite;
   discovery?: ScenarioDiscoveryConfig;
   sources?: { openapi?: OpenApiSourceConfig[]; storybook?: StorybookSourceConfig[] };

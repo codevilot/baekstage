@@ -25,14 +25,27 @@ configuration and options.
 
 ## Define a scenario
 
+The default convention discovers both legacy `*.baekstage.ts` definitions and the
+semantic feature-folder convention below. The feature directory owns the feature name;
+each file makes its Baekstage role explicit:
+
+```text
+tests/baekstage/checkout/
+  baekstage.scenario.ts
+  baekstage.spec.ts
+```
+
 ```ts
 import { defineScenario } from "baekstage";
 
 export const checkout = defineScenario({
   id: "checkout-card",
   title: "Checkout with a card",
-  source: "e2e/checkout.spec.ts",
-  execution: { grep: "card checkout" },
+  execution: {
+    adapter: "playwright",
+    source: "./baekstage.spec.ts",
+    grep: "card checkout",
+  },
   nodes: [
     { id: "cart", title: "Cart ready", kind: "fixture" },
     { id: "review", title: "Review order", kind: "screen" },

@@ -21,7 +21,7 @@ import { defineConfig } from "baekstage/config";
 export default defineConfig({
   envFile: ".env.baekstage",
   discovery: {
-    root: ".",
+    root: "./tests/baekstage",
     exclude: ["postgres-data"],
     ignorePermissionErrors: true,
   },
@@ -60,12 +60,37 @@ export default defineConfig({
 });
 ```
 
-`suite` is required. `playwright` is optional; without it the CLI is a static graph
-viewer. Relative paths are resolved from the directory where Baekstage is executed.
+`suite` is optional when discovery finds at least one definition; configured and
+discovered scenarios are combined. `playwright` is optional; without it the CLI is a
+static graph viewer. General relative paths are resolved from the directory where
+Baekstage is executed.
 
 CLI host, port, and open flags override values in the config file.
 
-`discovery.root` changes where recursive `*.baekstage.*` discovery starts.
+`discovery.root` changes where scenario discovery starts. By default Baekstage finds
+recursive legacy `*.baekstage.*` definitions and semantic `baekstage.scenario.*`
+definitions:
+
+```text
+tests/baekstage/
+  checkout/
+    baekstage.scenario.ts
+    baekstage.spec.ts
+```
+
+```ts
+execution: {
+  adapter: "playwright",
+  source: "./baekstage.spec.ts",
+}
+```
+
+Baekstage resolves `./` and `../` execution sources from the definition file. Override
+`discovery.include` when a project needs another definition name; patterns support `*`,
+`**`, and `?` and are relative to the discovery root. Keeping the definition and
+executable test separate prevents scenario discovery from registering Playwright tests
+in the viewer process. `baekstage.spec.*` is deliberately not a definition pattern.
+
 `discovery.exclude` accepts directory names or paths relative to that root, and
 `ignorePermissionErrors` skips directories that cannot be read due to permissions.
 

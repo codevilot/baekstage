@@ -18,23 +18,28 @@
   "exports": {
     ".": {
       "types": "./dist-types/index.d.ts",
-      "import": "./dist-lib/baekstage.js"
+      "import": "./dist-lib/baekstage.js",
+      "require": "./dist-lib/baekstage.cjs"
     },
     "./playwright": {
       "types": "./dist-types/playwright/index.d.ts",
-      "import": "./dist-lib/playwright.js"
+      "import": "./dist-lib/playwright.js",
+      "require": "./dist-lib/playwright.cjs"
     },
     "./config": {
       "types": "./dist-types/config.d.ts",
-      "import": "./dist-lib/config.js"
+      "import": "./dist-lib/config.js",
+      "require": "./dist-lib/config.cjs"
     },
     "./vite": {
       "types": "./dist-types/vite/scenario-plugin.d.ts",
-      "import": "./dist-lib/vite.js"
+      "import": "./dist-lib/vite.js",
+      "require": "./dist-lib/vite.cjs"
     },
     "./openapi": {
       "types": "./dist-types/openapi/catalog.d.ts",
-      "import": "./dist-lib/openapi.js"
+      "import": "./dist-lib/openapi.js",
+      "require": "./dist-lib/openapi.cjs"
     },
     "./style.css": "./dist-lib/baekstage.css"
   },

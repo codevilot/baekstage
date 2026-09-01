@@ -15,8 +15,11 @@ export default defineConfig({
         vite: "src/vite/scenario-plugin.ts",
         openapi: "src/openapi/catalog.ts",
       },
-      formats: ["es"],
-      fileName: (_format, entryName) => entryName === "index" ? "baekstage.js" : `${entryName}.js`,
+      formats: ["es", "cjs"],
+      fileName: (format, entryName) => {
+        const name = entryName === "index" ? "baekstage" : entryName;
+        return `${name}.${format === "cjs" ? "cjs" : "js"}`;
+      },
       cssFileName: "baekstage",
     },
     rollupOptions: {

@@ -15,11 +15,30 @@ describe("scenario discovery", () => {
     const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
     await mkdir(path.join(root, "e2e")); await mkdir(path.join(root, "node_modules")); await mkdir(path.join(root, ".next-baekstage")); await mkdir(path.join(root, ".worktrees"));
     await writeFile(path.join(root, "e2e", "signup.baekstage.ts"), "export default {}");
+    await mkdir(path.join(root, "e2e", "checkout"));
+    await writeFile(path.join(root, "e2e", "checkout", "baekstage.scenario.ts"), "export default {}");
+    await writeFile(path.join(root, "e2e", "checkout", "baekstage.spec.ts"), "export default {}");
     await writeFile(path.join(root, "e2e", "signup.bs.ts"), "export default {}");
     await writeFile(path.join(root, "node_modules", "hidden.baekstage.ts"), "export default {}");
     await writeFile(path.join(root, ".next-baekstage", "generated.baekstage.ts"), "export default {}");
     await writeFile(path.join(root, ".worktrees", "checkout.baekstage.ts"), "export default {}");
-    expect((await findScenarioFiles(root)).map((file) => path.relative(root, file))).toEqual(["e2e/signup.baekstage.ts"]);
+    expect((await findScenarioFiles(root)).map((file) => path.relative(root, file))).toEqual([
+      "e2e/checkout/baekstage.scenario.ts",
+      "e2e/signup.baekstage.ts",
+    ]);
+  });
+
+  it("supports semantic definition names through discovery include globs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    await mkdir(path.join(root, "month-close"));
+    await mkdir(path.join(root, "checkout"));
+    await writeFile(path.join(root, "month-close", "scenario.ts"), "export default {}");
+    await writeFile(path.join(root, "month-close", "journey.spec.ts"), "export default {}");
+    await writeFile(path.join(root, "checkout", "checkout.scenario.ts"), "export default {}");
+    expect((await findScenarioFiles(root, { include: ["**/scenario.ts", "**/*.scenario.ts"] })).map((file) => path.relative(root, file))).toEqual([
+      "checkout/checkout.scenario.ts",
+      "month-close/scenario.ts",
+    ]);
   });
 
   it("combines configured and discovered scenarios", async () => {
@@ -27,6 +46,21 @@ describe("scenario discovery", () => {
     const file = path.join(root, "signup.baekstage.ts"); await writeFile(file, "export default {}");
     const suite = await discoverSuite(root, { name: "App", scenarios: [scenario("configured")] }, async () => scenario("signup"));
     expect(suite.scenarios.map(({ id }) => id)).toEqual(["configured", "signup"]);
+  });
+
+  it("resolves a Playwright source relative to its scenario definition", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    const directory = path.join(root, "month-close"); await mkdir(directory);
+    const file = path.join(directory, "baekstage.scenario.ts"); await writeFile(file, "export default {}");
+    const suite = await discoverSuite(root, undefined, async () => ({
+      ...scenario("month-close"),
+      execution: { adapter: "playwright", source: "./baekstage.spec.ts", grep: "month close" },
+    }));
+    expect(suite.scenarios[0].execution).toEqual({
+      adapter: "playwright",
+      source: path.join(directory, "baekstage.spec.ts"),
+      grep: "month close",
+    });
   });
 
   it("supports custom excluded directory names and root-relative paths", async () => {

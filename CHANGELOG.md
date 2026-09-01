@@ -1,5 +1,7 @@
 # Changelog
 
+- Add semantic `baekstage.scenario.*` discovery, configurable include globs, and definition-relative Playwright sources for feature-folder scenarios.
+- Publish CommonJS entry points alongside ESM so Playwright can import `baekstage/playwright` from ordinary `.spec.ts` files.
 - Allow managed web servers and services to use an automatically allocated internal port, and avoid duplicate binds when an existing HTTP server returns a 5xx response.
 - Prepare branch Storybook worktrees with the primary checkout's dependencies, matching revision previews.
 

@@ -124,7 +124,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   async function execute(id: string, source?: string, grep?: string): Promise<ScenarioRunResult> {
     const runId = randomUUID(); const startedAt = new Date().toISOString();
     let relative: string | undefined;
-    if (source) { relative = source.startsWith(`${path.basename(projectRoot)}/`) ? source.slice(path.basename(projectRoot).length + 1) : source; const target = path.resolve(projectRoot, relative); if (!target.startsWith(`${projectRoot}${path.sep}`) || !existsSync(target)) throw new Error("Playwright source is outside projectRoot or does not exist"); }
+    if (source) { const candidate = source.startsWith(`${path.basename(projectRoot)}/`) ? source.slice(path.basename(projectRoot).length + 1) : source; const target = path.resolve(projectRoot, candidate); if (!target.startsWith(`${projectRoot}${path.sep}`) || !existsSync(target)) throw new Error("Playwright source is outside projectRoot or does not exist"); relative = path.relative(projectRoot, target); }
     const command = options.command ?? "npm";
     const prefix = options.commandArgs ?? ["exec", "--", "playwright", "test"];
     const result = await run(command, [...prefix, ...(relative ? [relative] : []), "--reporter=json", "--trace=on", ...(grep ? ["--grep", grep] : [])], projectRoot, options.env ?? {});

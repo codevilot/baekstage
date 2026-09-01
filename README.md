@@ -38,16 +38,17 @@ export default defineConfig({
 });
 ```
 
-Scenarios are discovered recursively from `*.baekstage.ts` files by default:
+Scenarios are discovered recursively from legacy `*.baekstage.ts` files and semantic
+feature folders by default:
 
 ```ts
-// e2e/card-payment.baekstage.ts
+// tests/baekstage/card-payment/baekstage.scenario.ts
 import { defineScenario } from "baekstage";
 
 export default defineScenario({
   id: "card-payment",
   title: "Card payment",
-  execution: { adapter: "playwright", source: "e2e/card-payment.spec.ts", grep: "card succeeds" },
+  execution: { adapter: "playwright", source: "./baekstage.spec.ts", grep: "card succeeds" },
   nodes: [
     { id: "cart", title: "Cart", kind: "screen" },
     { id: "paid", title: "Payment complete", kind: "outcome" },
@@ -62,11 +63,23 @@ Discovery can be scoped when the project contains large or inaccessible director
 
 ```ts
 discovery: {
-  root: "./e2e",
+  root: "./tests/baekstage",
   exclude: ["fixtures", "generated/scenarios"],
   ignorePermissionErrors: true,
 },
 ```
+
+For semantic feature folders, use names that make both files visibly Baekstage-owned:
+
+```text
+tests/baekstage/card-payment/
+  baekstage.scenario.ts  # map and API contract
+  baekstage.spec.ts      # Playwright execution and evidence
+```
+
+`baekstage.scenario.*` is discovered by default. Its Playwright source can be the
+colocated `./baekstage.spec.ts`. Use `discovery.include` only when a project needs a
+custom definition name.
 
 Start the workspace:
 
