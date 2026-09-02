@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { StorybookVisualPlatform, WorktreeStorybookManager } from "./platform";
+import { availablePort, StorybookVisualPlatform, WorktreeStorybookManager } from "./platform";
 
 describe("Storybook visual platform", () => {
   let root = ""; let server: Server; let url = "";
@@ -36,6 +36,20 @@ describe("Storybook visual platform", () => {
 });
 
 describe("worktree Storybook manager", () => {
+  test("skips ports occupied on a non-loopback host interface", async () => {
+    const occupied = createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.2", resolve);
+    });
+    try {
+      const address = occupied.address(); if (!address || typeof address === "string") throw new Error("Server address unavailable");
+      expect(await availablePort(address.port)).not.toBe(address.port);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   test("uses a detached preview so the compared branch remains switchable", async () => {
     const repository = await mkdtemp(path.join(tmpdir(), "baekstage-worktree-"));
     try {

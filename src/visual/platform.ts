@@ -162,8 +162,11 @@ export async function listGitWorktrees(root: string) {
   }));
 }
 
-async function availablePort(start = 6006) {
-  for (let port = start; port < start + 100; port += 1) { const free = await new Promise<boolean>((resolve) => { const server = net.createServer(); server.once("error", () => resolve(false)); server.listen(port, "127.0.0.1", () => server.close(() => resolve(true))); }); if (free) return port; }
+export async function availablePort(start = 6006) {
+  // Probe the wildcard address because Storybook rejects a port occupied on any
+  // host interface. A loopback-only probe can miss a Docker/VPN publication and
+  // Storybook will silently increment the port, leaving our health check behind.
+  for (let port = start; port < start + 100; port += 1) { const free = await new Promise<boolean>((resolve) => { const server = net.createServer(); server.once("error", () => resolve(false)); server.listen(port, "0.0.0.0", () => server.close(() => resolve(true))); }); if (free) return port; }
   throw new Error("No Storybook port is available");
 }
 

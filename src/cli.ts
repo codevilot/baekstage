@@ -63,7 +63,16 @@ function configPath(cwd: string, requested?: string) {
 
 async function loadConfig(cwd: string, file: string): Promise<BaekstageConfig> {
   if (!existsSync(file)) throw new Error(`Config does not exist: ${file}`);
-  const loader = await createServer({ root: cwd, configFile: false, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const loader = await createServer({
+    root: cwd,
+    configFile: false,
+    appType: "custom",
+    logLevel: "silent",
+    // Managed revision worktrees can contain many complete repository copies.
+    // They are runtime artifacts, never config dependencies, and watching them
+    // can exhaust the process/user inotify limit before the CLI even starts.
+    server: { middlewareMode: true, watch: { ignored: ["**/.baekstage/**"] } },
+  });
   try {
     const config = file.endsWith(".json")
       ? JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8")) as BaekstageConfig
