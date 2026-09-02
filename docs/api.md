@@ -35,7 +35,7 @@ Node filesystem APIs.
 
 ## Test entry: `baekstage/playwright`
 
-- `markScreenshot(page, testInfo, mark)`: captures a page or full page.
+- `markScreenshot(page, testInfo, mark)`: captures a page image and a safe DOM snapshot.
 - `markElementScreenshot(locator, testInfo, mark)`: captures locator bounds.
 - `screenshotMarkName(mark)`: encodes metadata in an attachment name.
 - `readScreenshotMark(name)`: decodes a marked attachment.

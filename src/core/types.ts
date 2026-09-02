@@ -22,6 +22,8 @@ export type TestResult = {
 export type StorybookStory = {
   id: string;
   sourceId: string;
+  /** Story source reported by Storybook's index.json (usually relative to the Storybook app root). */
+  sourcePath?: string;
   title: string;
   name: string;
   component: string;
@@ -82,6 +84,7 @@ export type ScenarioArtifact = {
   important?: boolean;
   checkpoint?: boolean;
   traceUrl?: string;
+  domSnapshotUrl?: string;
   nodeNumber?: number;
   nodeTitle?: string;
   target?: string;

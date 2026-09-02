@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { defineConfig } from "../config";
-import { markElementScreenshot, readScreenshotMark, screenshotMarkName } from "../playwright/mark-screenshot";
+import { DOM_SNAPSHOT_CONTENT_TYPE, markElementScreenshot, markScreenshot, readDomSnapshotMark, readScreenshotMark, screenshotMarkName } from "../playwright/mark-screenshot";
 import { artifactMatchesEdge, screenshotsForNode } from "./artifacts";
 import { defineScenario, filterScenario, mergeResult } from "./scenario";
 
@@ -33,6 +33,19 @@ describe("scenario graph", () => {
       { label: "Order total", nodeId: "total-after", target: "[data-testid=order-total]" },
     );
     expect(readScreenshotMark(calls[0])).toMatchObject({ nodeId: "total-after", target: "[data-testid=order-total]" });
+  });
+
+  it("attaches a DOM snapshot beside a marked page screenshot", async () => {
+    const calls: Array<{ name: string; contentType: string; body: unknown }> = [];
+    await markScreenshot(
+      { evaluate: async <Result,>() => ({ version: 1 as const, url: "https://app.test/review", title: "Review", html: "<!doctype html><p>Loading</p>" }) as Result, screenshot: async () => new Uint8Array([1, 2, 3]) },
+      { attach: async (name, options) => { calls.push({ name, ...options }); } },
+      { label: "Loading review", nodeId: "loading" },
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0].contentType).toBe(DOM_SNAPSHOT_CONTENT_TYPE);
+    expect(readDomSnapshotMark(calls[0].name)).toMatchObject({ nodeId: "loading" });
+    expect(readScreenshotMark(calls[1].name)).toMatchObject({ nodeId: "loading" });
   });
 
   it("does not attach unmarked screenshots to a root edge", () => {

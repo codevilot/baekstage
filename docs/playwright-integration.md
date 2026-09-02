@@ -96,8 +96,10 @@ await test.step("Scenario node: total after discount", async () => {
 ```
 
 Wrapping a capture in `test.step` makes its location easier to find in Playwright Trace.
-The trace currently opens at the test level; select the named step or Screenshot action
-to inspect the exact DOM snapshot.
+`markScreenshot` also stores a script-free DOM snapshot with inline readable styles.
+Baekstage opens that snapshot directly over LAN HTTP without requiring a service worker.
+On HTTPS and localhost, the viewer also offers the full Playwright trace. Password,
+token, secret, authorization, cookie, and session fields are redacted from the DOM copy.
 
 ## Node and edge ownership
 

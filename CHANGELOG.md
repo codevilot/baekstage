@@ -1,5 +1,6 @@
 # Changelog
 
+- Capture a script-free, redacted DOM snapshot with each marked page screenshot and serve it from Baekstage so interactive review works over LAN HTTP without Playwright Trace Viewer service workers.
 - Record successful and failed Playwright `observer.step()` executions as node results even when a branch ends without an OpenAPI request.
 - Serve cache-busted Playwright screenshots and traces from their real asset paths instead of falling through to the Vite HTML document.
 - Match Schema comparison controls to Review with separate Changes and Branches modes, keeping working-tree comparisons worktree-free.

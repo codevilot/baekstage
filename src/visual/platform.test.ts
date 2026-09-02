@@ -13,7 +13,7 @@ describe("Storybook visual platform", () => {
     root = await mkdtemp(path.join(tmpdir(), "baekstage-visual-"));
     execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
     server = createServer((req, res) => {
-      if (req.url?.endsWith("/index.json")) { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify({ entries: { "button--primary": { id: "button--primary", title: "Components/Button", name: "Primary", type: "story", tags: ["autodocs"] } } })); }
+      if (req.url?.endsWith("/index.json")) { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify({ entries: { "button--primary": { id: "button--primary", title: "Components/Button", name: "Primary", type: "story", tags: ["autodocs"], importPath: "./src/stories/button.stories.tsx" } } })); }
       const color = req.url?.startsWith("/feature/") ? "#dc2626" : "#2563eb";
       res.setHeader("content-type", "text/html"); res.end(`<!doctype html><style>body{margin:0;background:white}button{margin:80px;padding:16px 24px;border:0;border-radius:8px;color:white;background:${color};font:20px sans-serif}</style><button data-testid="submit">Continue</button>`);
     });
@@ -24,7 +24,7 @@ describe("Storybook visual platform", () => {
 
   test("discovers, captures, diffs, reviews, and persists annotation threads", async () => {
     const platform = new StorybookVisualPlatform(root, [{ id: "main", url: `${url}/main`, branch: "main" }, { id: "feature", url: `${url}/feature`, branch: "feature/login" }], { viewport: { width: 500, height: 300 } });
-    const stories = await platform.stories("main"); expect(stories[0]).toMatchObject({ id: "button--primary", component: "Button", name: "Primary" });
+    const stories = await platform.stories("main"); expect(stories[0]).toMatchObject({ id: "button--primary", component: "Button", name: "Primary", sourcePath: "./src/stories/button.stories.tsx" });
     const baseline = await platform.capture({ sourceId: "main", storyId: stories[0].id }); expect(baseline.initialBaseline).toBe(true); expect(baseline.diff.changedPixels).toBe(0);
     const changed = await platform.capture({ sourceId: "feature", baseSourceId: "main", storyId: stories[0].id, baseBranch: "main" }); expect(changed.status).toBe("changed"); expect(changed.diff.changedPixels).toBeGreaterThan(0); expect(changed.build.baseBranch).toBe("main");
     const annotation = await platform.createAnnotation({ storyId: stories[0].id, x: .5, y: .5, selector: "[data-testid=submit]", elementPath: "button", comment: "Use the approved token" });

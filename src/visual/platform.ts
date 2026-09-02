@@ -61,10 +61,10 @@ export class StorybookVisualPlatform {
     const base = source.url.replace(/\/$/, "");
     const response = await fetch(`${base}/index.json`, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`Storybook index returned HTTP ${response.status}`);
-    const document = await response.json() as { entries?: Record<string, { id?: string; title?: string; name?: string; type?: string; tags?: string[] }> };
+    const document = await response.json() as { entries?: Record<string, { id?: string; title?: string; name?: string; type?: string; tags?: string[]; importPath?: string }> };
     return Object.values(document.entries ?? {}).filter((entry) => entry.type === "story").map((entry) => {
       const id = entry.id ?? ""; const title = entry.title ?? "Untitled";
-      return { id, sourceId, title, name: entry.name ?? id, component: title.split("/").at(-1) ?? title, tags: entry.tags ?? [], previewUrl: `${base}/iframe.html?id=${encodeURIComponent(id)}&viewMode=story` };
+      return { id, sourceId, sourcePath: entry.importPath, title, name: entry.name ?? id, component: title.split("/").at(-1) ?? title, tags: entry.tags ?? [], previewUrl: `${base}/iframe.html?id=${encodeURIComponent(id)}&viewMode=story` };
     }).filter((story) => !!story.id).sort((left, right) => `${left.title}/${left.name}`.localeCompare(`${right.title}/${right.name}`));
   }
 

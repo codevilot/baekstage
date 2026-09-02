@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } f
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
-import { readScreenshotMark } from "../playwright/mark-screenshot";
+import { DOM_SNAPSHOT_CONTENT_TYPE, type DomSnapshot, readDomSnapshotMark, readScreenshotMark } from "../playwright/mark-screenshot";
 import type { ApiAssertion, ObservedNetworkRecord, ObservedPlaywrightStep, OpenApiCatalog, ScenarioNodeResult, ScenarioRunResult, ScenarioSuite } from "../core/types";
 import { ApiExecutionAdapter, ApiExecutionError, type ApiRunInput, type ApiSourceRuntime } from "./api-execution-adapter";
 import { PlaywrightExecutionAdapter } from "./playwright-execution-adapter";
@@ -20,7 +20,7 @@ import type { SchemaSourceConfig, StorybookSourceConfig } from "../config";
 import { SchemaPlatform, SchemaPlatformError } from "../schema/platform";
 
 type Item = Record<string, unknown>;
-type Shot = { label: string; url: string; traceUrl?: string; scenarioId?: string; nodeId?: string; edgeId?: string; fromNodeId?: string; toNodeId?: string; category?: string; branch?: string; important?: boolean; checkpoint?: boolean; target?: string };
+type Shot = { label: string; url: string; traceUrl?: string; domSnapshotUrl?: string; scenarioId?: string; nodeId?: string; edgeId?: string; fromNodeId?: string; toNodeId?: string; category?: string; branch?: string; important?: boolean; checkpoint?: boolean; target?: string };
 export type BaekstagePluginOptions = {
   workspaceRoot?: string;
   projectRoot: string;
@@ -96,6 +96,11 @@ async function copyAttachment(item: Item, destination: string) {
   return true;
 }
 
+async function attachmentText(item: Item) {
+  if (typeof item.path === "string" && existsSync(item.path)) return readFile(item.path, "utf8");
+  if (typeof item.body === "string") return Buffer.from(item.body, "base64").toString("utf8");
+}
+
 export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   const projectRoot = path.resolve(options.projectRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? projectRoot);
@@ -112,7 +117,21 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
   async function saveArtifacts(id: string, report: unknown, runId: string) {
     const directory = path.join(resultRoot, id); await mkdir(directory, { recursive: true });
     const screenshots: Shot[] = [], traces: Array<{ label: string; url: string }> = [], networks: Array<{ scenarioId: string; records: ObservedNetworkRecord[] }> = [], steps: Array<{ scenarioId: string; records: ObservedPlaywrightStep[] }> = [];
+    let domSnapshotIndex = 0;
     for (const group of attachmentGroups(report)) {
+      const domSnapshots = new Map<string, string[]>();
+      for (const item of group.filter((entry) => String(entry.contentType) === DOM_SNAPSHOT_CONTENT_TYPE)) {
+        const mark = readDomSnapshotMark(String(item.name ?? ""));
+        if (!mark) continue;
+        try {
+          const snapshot = JSON.parse(await attachmentText(item) ?? "") as DomSnapshot;
+          if (snapshot.version !== 1 || typeof snapshot.html !== "string") continue;
+          const name = `dom-${++domSnapshotIndex}.html`;
+          await writeFile(path.join(directory, name), snapshot.html, "utf8");
+          const key = JSON.stringify(mark); const urls = domSnapshots.get(key) ?? [];
+          urls.push(resultAssetUrl(assetBase, id, name, runId)); domSnapshots.set(key, urls);
+        } catch {}
+      }
       for (const item of group) { const name = String(item.name ?? ""); const networkMeta = readNetworkAttachmentName(name); const stepMeta = readStepAttachmentName(name); if (!networkMeta && !stepMeta) continue; try { let raw = ""; if (typeof item.path === "string" && existsSync(item.path)) raw = await readFile(item.path, "utf8"); else if (typeof item.body === "string") { try { raw = Buffer.from(item.body, "base64").toString("utf8"); JSON.parse(raw); } catch { raw = item.body; } } const records = redactEvidence(JSON.parse(raw), options.redactKeys); if (!Array.isArray(records)) continue; if (networkMeta) networks.push({ scenarioId: networkMeta.scenarioId, records }); else if (stepMeta) steps.push({ scenarioId: stepMeta.scenarioId, records }); } catch {} }
       const trace = group.find((item) => item.name === "trace" || String(item.contentType).includes("zip"));
       let traceUrl: string | undefined;
@@ -121,7 +140,8 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
         const extension = String(item.contentType).includes("jpeg") ? "jpg" : "png"; const name = `${screenshots.length + 1}.${extension}`;
         if (!await copyAttachment(item, path.join(directory, name))) continue;
         const rawLabel = String(item.name ?? `Screenshot ${screenshots.length + 1}`); const mark = readScreenshotMark(rawLabel);
-        screenshots.push({ label: mark?.label ?? rawLabel, url: resultAssetUrl(assetBase, id, name, runId), traceUrl, ...(mark ?? {}) });
+        const snapshotUrls = mark ? domSnapshots.get(JSON.stringify(mark)) : undefined;
+        screenshots.push({ label: mark?.label ?? rawLabel, url: resultAssetUrl(assetBase, id, name, runId), traceUrl, domSnapshotUrl: snapshotUrls?.shift(), ...(mark ?? {}) });
       }
     }
     return { screenshots, traces, networks, steps };
@@ -221,7 +241,7 @@ export function baekstagePlugin(options: BaekstagePluginOptions): Plugin {
     });
     const traceRoot = path.join(projectRoot, "node_modules/playwright-core/lib/vite/traceViewer");
     server.middlewares.use(traceBase, (req, res, next) => { const relative = req.url === "/" ? "/index.html" : req.url?.split("?")[0] ?? "/index.html"; const file = path.resolve(traceRoot, `.${relative}`); if (!file.startsWith(`${traceRoot}${path.sep}`) || !existsSync(file)) return next(); const types: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".ttf": "font/ttf" }; readFile(file).then((data) => { res.writeHead(200, { "content-type": types[path.extname(file)] ?? "application/octet-stream" }); res.end(data); }).catch(next); });
-    server.middlewares.use(assetBase, (req, res, next) => { const relative = req.url?.split("?")[0] ?? "/"; const file = path.resolve(resultRoot, `.${relative}`); if (!file.startsWith(`${resultRoot}${path.sep}`) || !existsSync(file)) return next(); readFile(file).then((data) => { res.writeHead(200, { "content-type": file.endsWith(".zip") ? "application/zip" : file.endsWith(".jpg") ? "image/jpeg" : file.endsWith(".json") ? "application/json" : "image/png", "access-control-allow-origin": "*", "cache-control": "no-store" }); res.end(data); }).catch(next); });
+    server.middlewares.use(assetBase, (req, res, next) => { const relative = req.url?.split("?")[0] ?? "/"; const file = path.resolve(resultRoot, `.${relative}`); if (!file.startsWith(`${resultRoot}${path.sep}`) || !existsSync(file)) return next(); readFile(file).then((data) => { res.writeHead(200, { "content-type": file.endsWith(".zip") ? "application/zip" : file.endsWith(".html") ? "text/html; charset=utf-8" : file.endsWith(".jpg") ? "image/jpeg" : file.endsWith(".json") ? "application/json" : "image/png", ...(file.endsWith(".html") ? { "content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: http: https:; font-src data: http: https:" } : {}), "access-control-allow-origin": "*", "cache-control": "no-store" }); res.end(data); }).catch(next); });
     server.middlewares.use(apiBase, async (req, res) => { try { const match = req.url?.match(/^\/([^/]+)(?:\/run)?/); const id = match?.[1]; if (!id) return json(res, 400, { error: "Scenario id is required" }); if (req.method === "GET") { const file = path.join(resultRoot, id, "manifest.json"); return json(res, 200, existsSync(file) ? JSON.parse(await readFile(file, "utf8")) : null); } if (req.method === "POST" && req.url?.endsWith("/run")) { const input = await requestBody(req); return json(res, 200, await playwrightAdapter.run({ source: input.source, grep: input.grep }, { scenarioId: id })); } json(res, 405, { error: "Method not allowed" }); } catch (error) { json(res, 500, { error: error instanceof Error ? error.message : String(error) }); } });
     return () => worktreeManager.close();
   }};

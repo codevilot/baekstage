@@ -32,4 +32,20 @@ describe("ScreenshotGallery", () => {
     await user.click(screen.getByRole("button", { name: "Close trace viewer" }));
     expect(screen.getByRole("dialog", { name: "Month-close contract boundary" })).toBeVisible();
   });
+
+  it("opens a Baekstage DOM snapshot without the Playwright trace viewer", async () => {
+    const user = userEvent.setup();
+    render(<ScreenshotGallery screenshots={[{
+      type: "screenshot",
+      label: "Loading skeleton",
+      url: "/scenario-results/month-close/1.png",
+      domSnapshotUrl: "/scenario-results/month-close/dom-1.html",
+      traceUrl: "/scenario-results/month-close/trace-1.zip",
+      nodeId: "loading",
+    }]}/>);
+
+    await user.click(screen.getByAltText("Loading skeleton"));
+    await user.click(within(screen.getByRole("dialog", { name: "Loading skeleton" })).getByRole("button", { name: "Open interactive trace" }));
+    expect(screen.getByTitle("DOM snapshot for Loading skeleton")).toHaveAttribute("src", "/scenario-results/month-close/dom-1.html");
+  });
 });

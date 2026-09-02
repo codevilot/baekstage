@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { VisualWorkspace } from "./VisualWorkspace";
 
 const stories = [
-  { id: "pages-admin-dashboard--default", sourceId: "current", title: "Pages/Admin/Dashboard", name: "Default", component: "Dashboard", tags: [], previewUrl: "http://story/iframe.html?id=pages-admin-dashboard--default" },
-  { id: "components-button--primary", sourceId: "current", title: "Components/Button", name: "Primary", component: "Button", tags: [], previewUrl: "http://story/iframe.html?id=components-button--primary" },
+  { id: "pages-admin-dashboard--default", sourceId: "current", sourcePath: "./src/stories/admin/dashboard.stories.tsx", title: "Pages/Admin/Dashboard", name: "Default", component: "Dashboard", tags: [], previewUrl: "http://story/iframe.html?id=pages-admin-dashboard--default" },
+  { id: "components-button--primary", sourceId: "current", sourcePath: "./src/stories/components/button.stories.tsx", title: "Components/Button", name: "Primary", component: "Button", tags: [], previewUrl: "http://story/iframe.html?id=components-button--primary" },
 ];
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -21,7 +21,7 @@ describe("VisualWorkspace story explorer", () => {
       if (url.endsWith("/sources")) return Response.json([{ id: "current", url: "http://story", branch: "feature" }]);
       if (url.endsWith("/branches")) return Response.json({ branches: ["feature"], worktrees: [] });
       if (url.endsWith("/commits")) return Response.json([{ sha: "a".repeat(40), shortSha: "aaaaaaa", committedAt: "2026-08-30T00:00:00Z", subject: "Current commit" }, { sha: "b".repeat(40), shortSha: "bbbbbbb", committedAt: "2026-08-29T00:00:00Z", subject: "Previous UI" }]);
-      if (url.includes("/changed-files")) { changedFileRequests += 1; return Response.json([{ status: "M", path: "src/Button.tsx" }, { status: "A", path: "src/NewCard.tsx" }]); }
+      if (url.includes("/changed-files")) { changedFileRequests += 1; return Response.json([{ status: "M", path: "apps/web/src/stories/admin/dashboard.stories.tsx" }, { status: "A", path: "src/stories/components/button.stories.tsx" }, { status: "M", path: "src/Button.tsx" }]); }
       if (url.includes("/stories?source=current")) return Response.json(stories);
       if (url.includes("/annotations")) return Response.json([]);
       if (url.endsWith("/capture") && init?.body) {
@@ -48,12 +48,19 @@ describe("VisualWorkspace story explorer", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "All 2" }));
     await userEvent.selectOptions(screen.getByLabelText("Changes before source"), "baseline");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Show code changes" })).toHaveTextContent("Changes 2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show code changes" })).toHaveTextContent("Changes 3"));
     const requestsBeforeReview = changedFileRequests;
     await userEvent.click(screen.getByRole("button", { name: "Show code changes" }));
+    expect(screen.getByText("Changed stories")).toBeInTheDocument();
     expect(screen.getByText("src/Button.tsx")).toBeInTheDocument();
-    expect(screen.getByLabelText("Code change M")).toHaveTextContent("M");
+    expect(screen.getAllByLabelText("Code change M")).toHaveLength(2);
     expect(screen.getByLabelText("Code change U")).toHaveTextContent("U");
+    expect(screen.getByLabelText("Story change M")).toHaveTextContent("M");
+    expect(screen.getByLabelText("Story change U")).toHaveTextContent("U");
+    await userEvent.click(screen.getByTitle("Components/Button / Primary"));
+    expect(screen.getByRole("heading", { name: "Components/Button / Primary" })).toBeInTheDocument();
+    expect(screen.getByTitle("compare story")).toHaveAttribute("src", "http://story/iframe.html?id=components-button--primary");
+    expect(captures).toBe(0);
     await userEvent.click(screen.getByRole("button", { name: "Show code changes" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Default" }));

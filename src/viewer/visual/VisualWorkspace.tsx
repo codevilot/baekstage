@@ -47,6 +47,21 @@ const diffPercent = (ratio: number) => {
   return percent > 0 && percent < 0.01 ? "<0.01%" : `${percent.toFixed(2)}%`;
 };
 
+const normalizedPath = (value: string) => value.replaceAll("\\", "/").replace(/^\.\//, "");
+const storyChange = (
+  story: StorybookStory,
+  changedFiles: Array<{ status: string; path: string }>,
+) => {
+  if (!story.sourcePath) return undefined;
+  const sourcePath = normalizedPath(story.sourcePath);
+  const file = changedFiles.find((item) => {
+    const changedPath = normalizedPath(item.path);
+    return changedPath === sourcePath || changedPath.endsWith(`/${sourcePath}`);
+  });
+  if (!file) return undefined;
+  return { story, status: file.status.startsWith("A") ? "added" as const : "modified" as const };
+};
+
 function selectorFor(element: Element) {
   const annotated = element.closest(
     "[data-baekstage-id],[data-testid],[data-test-id]",
@@ -193,6 +208,10 @@ export function VisualWorkspace({
       );
     return [...result];
   }, [query, stories, titleFilter]);
+  const changedStories = useMemo(
+    () => stories.map((item) => storyChange(item, changedFiles)).filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    [changedFiles, stories],
+  );
   const compareUrl =
     story && compareSource
       ? `${compareSource.url.replace(/\/$/, "")}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`
@@ -494,10 +513,24 @@ export function VisualWorkspace({
         </div>
         {changeFilter === "changes" ? (
           <nav className="code-change-list" aria-label="Code changes">
-            {changedFiles.length ? changedFiles.map((item) => {
-              const status = item.status.startsWith("A") ? "U" : item.status.startsWith("D") ? "R" : item.status[0] ?? "M";
-              return <div className={`code-change ${status.toLowerCase()}`} key={`${item.status}:${item.path}`}><b aria-label={`Code change ${status}`}>{status}</b><span title={item.path}>{item.path}</span></div>;
-            }) : <p>No code changes</p>}
+            {changedStories.length > 0 && (
+              <section className="changed-story-list">
+                <strong><small>Storybook</small><span>Changed stories</span></strong>
+                {changedStories.map(({ story: item, status }) => {
+                  const badge = status === "added" ? "U" : "M";
+                  return <button title={`${item.title} / ${item.name}`} className={`${status} ${item.id === selectedId ? "active" : ""}`} onClick={() => { setSelectedId(item.id); setCapture(null); setMode("compare"); }} key={item.id}><span>{item.name}</span><span className="story-badges"><b aria-label={`Story change ${badge}`}>{badge}</b></span></button>;
+                })}
+              </section>
+            )}
+            {changedFiles.length ? (
+              <section className="changed-file-list">
+                <strong><small>Git</small><span>Changed files</span></strong>
+                {changedFiles.map((item) => {
+                  const status = item.status.startsWith("A") ? "U" : item.status.startsWith("D") ? "R" : item.status[0] ?? "M";
+                  return <div className={`code-change ${status.toLowerCase()}`} key={`${item.status}:${item.path}`}><b aria-label={`Code change ${status}`}>{status}</b><span title={item.path}>{item.path}</span></div>;
+                })}
+              </section>
+            ) : <p>No code changes</p>}
           </nav>
         ) : (
           <>
