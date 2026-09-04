@@ -206,9 +206,18 @@ export type ScenarioRunResult = {
   screenshots: Array<Omit<ScenarioArtifact, "type">>;
   traces?: Array<{ label: string; url: string }>;
   artifacts?: ScenarioArtifact[];
+  /** Route taken by a generated scenario. Absent for legacy or hand-written specs. */
+  executionPath?: ScenarioExecutionPath;
   output: string;
   startedAt: string;
   finishedAt: string;
+};
+
+export type ScenarioExecutionPath = {
+  itemIds: string[];
+  nodeIds: string[];
+  edgeIds: string[];
+  outcomes: Record<string, string>;
 };
 
 export type ScenarioNode = {
@@ -247,13 +256,91 @@ export type ScenarioGraph = {
   description?: string;
   source?: string;
   execution?: ScenarioExecution | LegacyScenarioExecution;
+  /** Persistent editor layout. Part items are reusable references; node items are
+   * scenario-local documentation/observation nodes and do not execute code. */
+  composition?: ScenarioComposition;
+  /** Definition file attached by discovery. */
+  definitionSource?: string;
+  /** Runtime-only summary used to highlight the most recent path on the Map. */
+  latestRun?: Pick<ScenarioRunResult, "runId" | "status" | "finishedAt" | "executionPath">;
   nodes: ScenarioNode[];
   edges: ScenarioEdge[];
+};
+
+/** A reusable, executable portion of a scenario. Part definitions are discovered
+ * from `*.baekstage.part.*` files and run in sequence on the same Playwright page. */
+export type ScenarioPart = {
+  id: string;
+  title: string;
+  description?: string;
+  /** Named export in the part module. Defaults to `run`. */
+  execute?: string;
+  /** Filled by discovery; normally omitted by authors. */
+  source?: string;
+  /** Values supplied by each Part instance to drive reusable actions. */
+  inputs?: ScenarioPartVariable[];
+  /** Expected values supplied by each instance and asserted by its Playwright function. */
+  expectations?: ScenarioPartVariable[];
+  /** Named business outcomes reserved for scenario-level routing. Assertion failures remain test failures. */
+  outcomes?: ScenarioPartOutcome[];
+  nodes: ScenarioNode[];
+  edges: ScenarioEdge[];
+};
+
+export type ScenarioPartVariable = {
+  id: string;
+  title: string;
+  type: "string" | "number" | "boolean" | "json";
+  description?: string;
+  required?: boolean;
+  defaultValue?: unknown;
+};
+
+export type ScenarioPartOutcome = { id: string; title: string; description?: string; verdict?: "continue" | "passed" | "failed" };
+export type ScenarioPartRunOptions = { inputs: Record<string, unknown>; expectations: Record<string, unknown> };
+export type ScenarioPartRunResult = { outcome?: string; values?: Record<string, unknown> };
+
+export type ScenarioPartUse = {
+  part: ScenarioPart;
+  repeat?: number;
+  inputs?: Record<string, unknown>;
+  expectations?: Record<string, unknown>;
+};
+
+export type ScenarioCompositionDraft = {
+  id: string;
+  title: string;
+  description?: string;
+  items: Array<{ partId: string; repeat?: number; inputs?: Record<string, unknown>; expectations?: Record<string, unknown> }>;
+  routes?: ScenarioCompositionRoute[];
+};
+
+export type ScenarioCompositionItem =
+  | { id: string; type: "part"; partId: string; repeat?: number; inputs?: Record<string, unknown>; expectations?: Record<string, unknown> }
+  | { id: string; type: "node"; nodeId: string };
+
+export type ScenarioCompositionRoute = { fromItemId: string; outcome: string; toItemId: string };
+export type ScenarioComposition = { items: ScenarioCompositionItem[]; routes?: ScenarioCompositionRoute[] };
+
+export type ScenarioEditDraft = {
+  id: string;
+  title: string;
+  description?: string;
+  items: Array<
+    | { id: string; type: "part"; partId: string; repeat?: number; inputs?: Record<string, unknown>; expectations?: Record<string, unknown> }
+    | { id: string; type: "node"; node: ScenarioNode }
+  >;
+  /** Original edges are retained for existing manual nodes. */
+  edges?: ScenarioEdge[];
+  routes?: ScenarioCompositionRoute[];
+  execution?: ScenarioExecution | LegacyScenarioExecution;
+  definitionSource?: string;
 };
 
 export type ScenarioSuite = {
   name: string;
   generatedAt?: string;
+  parts?: ScenarioPart[];
   scenarios: ScenarioGraph[];
 };
 
@@ -267,6 +354,8 @@ export type ScenarioViewerOptions = {
   storybookEndpoint?: string;
   reviewEndpoint?: string;
   schemaEndpoint?: string;
+  composerEndpoint?: string;
+  editorEndpoint?: string;
 };
 
 export type OpenApiParameter = { name: string; in: "path" | "query" | "header" | "cookie"; required?: boolean; description?: string; schema?: unknown; example?: unknown };

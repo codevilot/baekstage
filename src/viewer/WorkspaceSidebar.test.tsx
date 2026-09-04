@@ -37,4 +37,11 @@ describe("WorkspaceSidebar suite execution", () => {
     expect(onRunAll).toHaveBeenCalledWith("all");
     expect(screen.queryByRole("dialog", { name: "전체 실행 범위를 확인해 주세요" })).not.toBeInTheDocument();
   });
+
+  it("places scenario creation beside the scenario count", async () => {
+    const onAdd = vi.fn();
+    render(<WorkspaceSidebar suite={suite} open batch={{ policy: "missing", running: false, progress: { completed: 0, total: 0, failed: 0, skipped: 0 } }} onPolicy={vi.fn()} onRunAll={vi.fn()} onStop={vi.fn()} onToggle={vi.fn()} onResize={vi.fn()} onSelect={vi.fn()} onAdd={onAdd}/>);
+    const button = screen.getByRole("button", { name: "시나리오 추가" });
+    expect(button.parentElement).toHaveTextContent("Scenarios · 0"); await userEvent.click(button); expect(onAdd).toHaveBeenCalledOnce();
+  });
 });

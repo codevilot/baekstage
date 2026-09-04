@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { defineConfig } from "../config";
 import { DOM_SNAPSHOT_CONTENT_TYPE, markElementScreenshot, markScreenshot, readDomSnapshotMark, readScreenshotMark, screenshotMarkName } from "../playwright/mark-screenshot";
 import { artifactMatchesEdge, screenshotsForNode } from "./artifacts";
-import { defineScenario, filterScenario, mergeResult } from "./scenario";
+import { composeScenario, definePart, defineScenario, filterScenario, materializeScenario, mergeResult, scenarioEditWarnings } from "./scenario";
 
 const graph = defineScenario({
   id: "sample",
@@ -89,6 +89,58 @@ describe("scenario graph", () => {
 
   it("rejects edges to unknown nodes", () => {
     expect(() => defineScenario({ id: "bad", title: "Bad", nodes: [], edges: [{ id: "x", source: "missing", target: "also-missing" }] })).toThrow("Unknown edge source");
+  });
+
+  it("composes and repeats reusable Parts with namespaced nodes", () => {
+    const login = definePart({ id: "login", title: "Login", nodes: [{ id: "form", title: "Form", kind: "screen" }, { id: "done", title: "Done", kind: "outcome" }], edges: [{ id: "submit", source: "form", target: "done" }] });
+    const drag = definePart({ id: "drag", title: "Drag", nodes: [{ id: "start", title: "Start", kind: "action" }, { id: "end", title: "End", kind: "outcome" }], edges: [{ id: "move", source: "start", target: "end" }] });
+    const composed = composeScenario({ id: "login-drag", title: "Login and drag", parts: [{ part: login }, { part: drag, repeat: 2 }] });
+    expect(composed.nodes.map((node) => node.id)).toEqual(["login-1-1:form", "login-1-1:done", "drag-2-1:start", "drag-2-1:end", "drag-2-2:start", "drag-2-2:end"]);
+    expect(composed.edges.filter((edge) => edge.label === "next Part")).toHaveLength(2);
+    expect(composed.nodes[2].metadata).toMatchObject({ partId: "drag", partOccurrence: 2, repeat: 1 });
+  });
+
+  it("keeps manual Nodes distinct while materializing reusable Part instances", () => {
+    const part = definePart({ id: "login", title: "Login", nodes: [{ id: "form", title: "Form", kind: "screen" }], edges: [] });
+    const result = materializeScenario({ id: "editable", title: "Editable", items: [
+      { id: "node-a", type: "node", node: { id: "a", title: "A", kind: "fixture" } },
+      { id: "node-b", type: "node", node: { id: "b", title: "B", kind: "action" } },
+      { id: "login-instance", type: "part", partId: "login", repeat: 2 },
+    ], edges: [{ id: "manual-branch", source: "a", target: "b", branch: true }] }, [part]);
+    expect(result.edges.filter((edge) => edge.source === "a" && edge.target === "b")).toEqual([expect.objectContaining({ id: "manual-branch", branch: true })]);
+    expect(result.nodes.filter((node) => node.metadata?.partId === "login")).toHaveLength(2);
+    expect(new Set(result.edges.map((edge) => edge.id)).size).toBe(result.edges.length);
+    expect(result.composition?.items).toEqual([expect.objectContaining({ type: "node", nodeId: "a" }), expect.objectContaining({ type: "node", nodeId: "b" }), expect.objectContaining({ type: "part", partId: "login", repeat: 2 })]);
+  });
+
+  it("turns Part outcomes into labeled graph branches and suppresses the default next edge", () => {
+    const part = definePart({ id: "login", title: "Login", outcomes: [{ id: "authenticated", title: "Authenticated" }, { id: "denied", title: "Denied" }], nodes: [{ id: "result", title: "Result", kind: "outcome" }], edges: [] });
+    const result = materializeScenario({ id: "routed", title: "Routed", items: [
+      { id: "login-item", type: "part", partId: "login" },
+      { id: "success-item", type: "node", node: { id: "success", title: "Success", kind: "screen" } },
+      { id: "denied-item", type: "node", node: { id: "denied", title: "Denied", kind: "outcome" } },
+    ], routes: [
+      { fromItemId: "login-item", outcome: "authenticated", toItemId: "success-item" },
+      { fromItemId: "login-item", outcome: "denied", toItemId: "denied-item" },
+    ] }, [part]);
+    expect(result.edges.filter((edge) => edge.branch).map((edge) => edge.label)).toEqual(["authenticated", "denied"]);
+    expect(result.edges.some((edge) => edge.source === "login-item:result" && edge.label === "next")).toBe(false);
+    expect(result.composition?.routes).toHaveLength(2);
+  });
+
+  it("validates Part variables and duplicate routes without breaking undeclared legacy options", () => {
+    const typed = definePart({ id: "typed", title: "Typed", inputs: [{ id: "email", title: "Email", type: "string", required: true }], nodes: [{ id: "done", title: "Done", kind: "outcome" }], edges: [] });
+    expect(() => materializeScenario({ id: "missing", title: "Missing", items: [{ id: "part", type: "part", partId: "typed" }] }, [typed])).toThrow("expected string (required)");
+    expect(() => materializeScenario({ id: "wrong", title: "Wrong", items: [{ id: "part", type: "part", partId: "typed", inputs: { email: 3 } }] }, [typed])).toThrow("expected string");
+    const legacy = definePart({ id: "legacy", title: "Legacy", nodes: [{ id: "done", title: "Done", kind: "outcome" }], edges: [] });
+    expect(materializeScenario({ id: "legacy-options", title: "Legacy options", items: [{ id: "part", type: "part", partId: "legacy", inputs: { custom: true } }] }, [legacy]).nodes).toHaveLength(1);
+    const routed = definePart({ ...legacy, outcomes: [{ id: "done", title: "Done" }] });
+    expect(() => materializeScenario({ id: "duplicate", title: "Duplicate", items: [{ id: "part", type: "part", partId: "legacy" }, { id: "end", type: "node", node: { id: "end", title: "End", kind: "outcome" } }], routes: [{ fromItemId: "part", outcome: "done", toItemId: "end" }, { fromItemId: "part", outcome: "done", toItemId: "end" }] }, [routed])).toThrow("Duplicate route");
+  });
+
+  it("warns about cyclic outcome routes while retaining guarded runtime support", () => {
+    const draft = { id: "cycle", title: "Cycle", items: [{ id: "a", type: "part" as const, partId: "a" }, { id: "b", type: "part" as const, partId: "b" }], routes: [{ fromItemId: "a", outcome: "next", toItemId: "b" }, { fromItemId: "b", outcome: "again", toItemId: "a" }] };
+    expect(scenarioEditWarnings(draft)).toEqual([expect.stringContaining("순환")]);
   });
 
   it("keeps the standalone config typed without changing its value", () => {

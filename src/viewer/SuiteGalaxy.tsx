@@ -6,7 +6,7 @@ import { artifactMatchesEdge, screenshotsForNode } from "../core/artifacts";
 import { scenarioNodeContext } from "../core/scenario-acts";
 
 type NetworkNode = { id: string; graphNodeId?: string; label: string; subtitle?: string; description?: string; actTitle?: string; nodeKind?: string; kind: "root" | "scenario" | "step"; scenarioId?: string; color: string; size: number; failed?: boolean; passed?: boolean; stepNumber?: number; x?: number; y?: number; fx?: number; fy?: number };
-type NetworkLink = { source: string | NetworkNode; target: string | NetworkNode; color: string; width: number; screenshots?: ScenarioArtifact[] };
+type NetworkLink = { source: string | NetworkNode; target: string | NetworkNode; color: string; width: number; screenshots?: ScenarioArtifact[]; executed?: boolean; label?: string };
 const ForceGraph2D = lazy(() => import("react-force-graph-2d")) as typeof import("react-force-graph-2d").default;
 
 function nodeColor(kind: string, failed: boolean) {
@@ -35,13 +35,17 @@ export function makeNetwork(suite: ScenarioSuite, depthLimit: number, status: "a
       if (next < (depths.get(edge.target) ?? Infinity)) depths.set(edge.target, next);
     }
     const visible = new Set(scenario.nodes.filter((node) => (depths.get(node.id) ?? 1) <= depthLimit && (status === "all" || node.status === "failed")).map((node) => node.id));
+    const executedEdges = new Set(scenario.latestRun?.executionPath?.edgeIds ?? []);
     const failurePath = new Set(scenario.nodes.filter((node) => node.status === "failed").map((node) => node.id));
     for (let pass = 0; pass < scenario.nodes.length; pass += 1) for (const edge of scenario.edges) if (failurePath.has(edge.target)) failurePath.add(edge.source);
     for (const [index, node] of scenario.nodes.entries()) if (visible.has(node.id)) { const act = scenarioNodeContext(scenario, node.id).act; nodes.push({ id: `${rootId}:${node.id}`, graphNodeId: node.id, label: node.title, subtitle: `Act ${act ? scenarioNodeContext(scenario, node.id).actIndex + 1 : "-"} · ${act?.title ?? node.kind}`, description: node.description ?? "Click to inspect this step's flow and evidence.", actTitle: act?.title, nodeKind: node.kind, kind: "step", scenarioId: scenario.id, color: nodeColor(node.kind, node.status === "failed"), size: 7, failed: node.status === "failed", passed: node.status === "passed", stepNumber: index + 1 }); }
     for (const node of scenario.nodes) if (visible.has(node.id)) {
       const parents = scenario.edges.filter((edge) => edge.target === node.id && visible.has(edge.source));
       const failingRoute = failurePath.has(node.id);
-      for (const edge of parents.length ? parents : [null]) links.push({ source: edge ? `${rootId}:${edge.source}` : rootId, target: `${rootId}:${node.id}`, color: failingRoute ? "#ef4444" : "#334155", width: failingRoute ? 1.7 : .7, screenshots: edgeShots(screenshots, edge, node.id) });
+      for (const edge of parents.length ? parents : [null]) {
+        const executed = !!edge && executedEdges.has(edge.id); const failedExecution = executed && node.status === "failed";
+        links.push({ source: edge ? `${rootId}:${edge.source}` : rootId, target: `${rootId}:${node.id}`, color: failedExecution ? "#ef4444" : executed ? "#10b981" : failingRoute ? "#ef4444" : "#334155", width: executed ? 2.2 : failingRoute ? 1.7 : .7, screenshots: edgeShots(screenshots, edge, node.id), executed, label: edge?.label });
+      }
     }
   }
   if (selectedId) {
@@ -127,8 +131,14 @@ function linkCenter(link: NetworkLink) {
 }
 
 function drawLinkMarker(link: NetworkLink, context: CanvasRenderingContext2D, scale: number, activeUrls: Set<string>) {
-  if (!link.screenshots?.length) return;
   const center = linkCenter(link); if (!center) return;
+  if (link.executed && !link.screenshots?.length) {
+    const label = `✓ ${link.label ?? "run"}`; context.font = `800 ${7 / scale}px Inter,sans-serif`; const width = context.measureText(label).width + 10 / scale, height = 16 / scale;
+    context.fillStyle = "rgba(8,13,24,.94)"; context.strokeStyle = link.color; context.lineWidth = 1.2 / scale;
+    context.beginPath(); context.roundRect(center.x - width / 2, center.y - height / 2, width, height, 4 / scale); context.fill(); context.stroke();
+    context.fillStyle = link.color; context.textAlign = "center"; context.textBaseline = "middle"; context.fillText(label, center.x, center.y); return;
+  }
+  if (!link.screenshots?.length) return;
   const active = !activeUrls.size || link.screenshots.some((item) => activeUrls.has(item.url));
   if (!active) {
     const width = 25 / scale, height = 18 / scale;
@@ -209,7 +219,7 @@ export function SuiteGalaxy({ suite, selectedScenarioId, selectedNodeId, maxDeta
     }
   };
   return <section ref={ref} className="galaxy" aria-label="All scenarios network graph">
-    <div className="galaxy-legend"><span><i className="main-dot"/>Suite</span><span><i className="scenario-dot"/>Scenario</span><span><i className="failed-dot"/>Failed</span>{selectedNodeId && <><span><i className="act-selected-dot"/>Selected Act</span><span><i className="step-selected-dot"/>Selected Step</span></>}</div>
+    <div className="galaxy-legend"><span><i className="main-dot"/>Suite</span><span><i className="scenario-dot"/>Scenario</span><span><i className="executed-dot"/>Last path</span><span><i className="failed-dot"/>Failed</span>{selectedNodeId && <><span><i className="act-selected-dot"/>Selected Act</span><span><i className="step-selected-dot"/>Selected Step</span></>}</div>
     <nav className="network-zoom" aria-label="Graph zoom controls"><button onClick={() => changeZoom(1.35)} aria-label="Zoom in">+</button><button onClick={() => changeZoom(1 / 1.35)} aria-label="Zoom out">−</button><button onClick={showOverview} aria-label="Show all scenarios" title="전체 시나리오 보기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9.5 20v-6h5v6"/></svg></button></nav>
     <Suspense fallback={null}><ForceGraph2D ref={graphRef} width={width} height={height} graphData={renderData} backgroundColor="#080d18" cooldownTicks={selectedScenarioId ? 1 : 120} d3AlphaDecay={selectedScenarioId ? 1 : .045} d3VelocityDecay={.38} enableNodeDrag={false} enableZoomInteraction enablePanInteraction nodeLabel={nodeTooltip} nodeRelSize={1} nodeCanvasObject={(node, context, scale) => drawNode(node, context, scale, selectedScenarioId, activeNodeIds, hoveredNodeId, selectedNetworkNodeId, selectedActIds)} nodePointerAreaPaint={drawHitArea} linkColor={(link) => activeLink(link) ? link.color : "rgba(51,65,85,.07)"} linkWidth={(link) => activeLink(link) ? link.width : .18} linkDirectionalArrowLength={0} linkCanvasObjectMode={() => "after"} linkCanvasObject={(link, context, scale) => drawLinkMarker(link, context, scale, activeUrls)} linkPointerAreaPaint={drawLinkHitArea} onLinkClick={(link) => link.screenshots?.length && onScreenshotsSelect(link.screenshots)} onEngineStop={fitAfterLayout} onNodeHover={(node) => setHoveredNodeId(node?.id)} onNodeClick={selectNode} onBackgroundClick={onBackgroundClick}/></Suspense>
   </section>;

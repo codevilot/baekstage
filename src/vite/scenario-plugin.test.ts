@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { parseOpenApiDocument } from "../openapi/catalog";
-import { baekstagePlugin, playwrightStepNodeResults, resultAssetUrl } from "./scenario-plugin";
+import { baekstagePlugin, generatedCompositionSpec, generatedEditorSpec, generatedScenarioModule, playwrightStepNodeResults, resultAssetUrl } from "./scenario-plugin";
 import type { ScenarioSuite } from "../core/types";
 
 describe("Vite API runner integration", () => {
@@ -22,9 +22,68 @@ describe("Vite API runner integration", () => {
     const traversal = await fetch(`${origin}/api/operations/history/${encodeURIComponent("../../outside")}/${encodeURIComponent("../node")}`); expect(traversal.status).toBe(200);
     const denied = await fetch(`${origin}/api/operations/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId: "api", operationId: operation.id, scenarioId: "scenario", nodeId: "other" }) }); expect(denied.status).toBe(403);
   });
+
+  it("runs a composition draft and only then writes its scenario files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-compose-")); directories.push(root);
+    const partFile = path.join(root, "login.baekstage.part.ts"); const runner = path.join(root, "fake-runner.mjs");
+    await writeFile(partFile, 'export async function run(page) { await page.goto("/"); }');
+    await writeFile(runner, 'console.log(JSON.stringify({ suites: [] }));');
+    const suite: ScenarioSuite = { name: "Compose", parts: [{ id: "login", title: "Login", source: partFile, nodes: [{ id: "form", title: "Form", kind: "screen" }], edges: [] }], scenarios: [] };
+    vite = await createViteServer({ root, configFile: false, logLevel: "silent", plugins: [baekstagePlugin({ projectRoot: root, resultRoot: path.join(root, "results"), command: process.execPath, commandArgs: [runner], suite })], server: { host: "127.0.0.1", port: 0 } });
+    await vite.listen(); const info = vite.httpServer?.address(); const origin = `http://127.0.0.1:${typeof info === "object" && info ? info.port : 0}`;
+    const response = await fetch(`${origin}/api/compositions/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "login-twice", title: "Login twice", items: [{ partId: "login", repeat: 2 }] }) });
+    const value = await response.json(); expect(response.status, JSON.stringify(value)).toBe(201); expect(value.scenario.nodes).toHaveLength(2);
+    const generated = path.join(root, "baekstage.generated", "login-twice");
+    expect(await (await import("node:fs/promises")).readFile(path.join(generated, "scenario.spec.ts"), "utf8")).toContain("part1(page)");
+    expect(await (await import("node:fs/promises")).readFile(path.join(generated, "baekstage.scenario.ts"), "utf8")).toContain("defineScenario");
+    const edited = await fetch(`${origin}/api/scenario-editor/save`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "login-twice", title: "Login edited", definitionSource: value.scenario.definitionSource, execution: value.scenario.execution, edges: value.scenario.edges, items: [{ id: "login-part", type: "part", partId: "login", repeat: 3 }] }) });
+    expect(edited.status, await edited.clone().text()).toBe(200); expect((await edited.json()).scenario.composition.items[0]).toMatchObject({ partId: "login", repeat: 3 });
+    expect((await (await import("node:fs/promises")).readFile(path.join(generated, "scenario.spec.ts"), "utf8")).match(/part1\(page\)/g)).toHaveLength(3);
+    const stableSpec = await (await import("node:fs/promises")).readFile(path.join(generated, "scenario.spec.ts"), "utf8");
+    await writeFile(runner, "process.exit(1);");
+    const rejected = await fetch(`${origin}/api/scenario-editor/save`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "login-twice", title: "Broken edit", items: [{ id: "login-part", type: "part", partId: "login" }], edges: [] }) });
+    expect(rejected.status).toBe(422); expect(await (await import("node:fs/promises")).readFile(path.join(generated, "scenario.spec.ts"), "utf8")).toBe(stableSpec);
+    const created = await fetch(`${origin}/api/scenario-editor/save`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "manual-created", title: "Manual created", items: [{ id: "manual-start", type: "node", node: { id: "start", title: "Start", kind: "fixture" } }], edges: [] }) });
+    expect(created.status).toBe(200); expect((await created.json()).scenario.nodes[0]).toMatchObject({ id: "start", title: "Start" });
+    expect(await (await import("node:fs/promises")).readFile(path.join(root, "baekstage.generated", "manual-created", "baekstage.scenario.ts"), "utf8")).toContain("Manual created");
+  });
 });
 
 describe("Playwright result asset URLs", () => {
+  it("generates a same-page Playwright spec with repeated Part steps", () => {
+    const file = "/repo/e2e/generated/scenario.spec.ts";
+    const spec = generatedCompositionSpec({ id: "login-drag", title: "Login then drag", items: [{ partId: "login", inputs: { email: "user@example.com" }, expectations: { heading: "Home" } }, { partId: "drag", repeat: 2 }] }, [
+      { id: "login", title: "Login", source: "/repo/e2e/parts/login.baekstage.part.ts", execute: "run", inputs: [{ id: "email", title: "Email", type: "string" }], expectations: [{ id: "heading", title: "Heading", type: "string" }], nodes: [], edges: [] },
+      { id: "drag", title: "Drag", source: "/repo/e2e/parts/drag.baekstage.part.ts", execute: "perform", nodes: [], edges: [] },
+    ], file);
+    expect(spec).toContain('import { run as part1 } from "../parts/login.baekstage.part"');
+    expect(spec).toContain('import { perform as part2 } from "../parts/drag.baekstage.part"');
+    expect(spec.match(/part2\(page\)/g)).toHaveLength(2);
+    expect(spec).toContain('"inputs":{"email":"user@example.com"}');
+    expect(spec).toContain('"expectations":{"heading":"Home"}');
+    expect(spec).toContain('test("Login then drag", async ({ page })');
+    expect(generatedScenarioModule({ id: "x", title: "X", nodes: [], edges: [] })).toContain("defineScenario");
+  });
+
+  it("dispatches declared Part outcomes while legacy Parts remain one-argument calls", () => {
+    const parts = [
+      { id: "login", title: "Login", source: "/repo/login.baekstage.part.ts", outcomes: [{ id: "authenticated", title: "Authenticated" }, { id: "denied", title: "Denied" }], nodes: [], edges: [] },
+      { id: "checkout", title: "Checkout", source: "/repo/checkout.baekstage.part.ts", nodes: [], edges: [] },
+    ];
+    const spec = generatedEditorSpec({ id: "branch", title: "Branch", items: [
+      { id: "login-item", type: "part", partId: "login" },
+      { id: "denied-node", type: "node", node: { id: "denied", title: "Denied", kind: "outcome" } },
+      { id: "checkout-item", type: "part", partId: "checkout" },
+    ], routes: [{ fromItemId: "login-item", outcome: "authenticated", toItemId: "checkout-item" }, { fromItemId: "login-item", outcome: "denied", toItemId: "denied-node" }] }, parts, "/repo/generated/scenario.spec.ts");
+    expect(spec).toContain('if (outcome === "authenticated") current = "checkout-item"');
+    expect(spec).toContain('else if (outcome === "denied") current = "denied-node"');
+    expect(spec).toContain("Unexpected outcome");
+    expect(spec).toContain("(page)); outcome = result?.outcome");
+    expect(spec).toContain('case "denied-node"');
+    expect(spec).toContain("baekstage-path:");
+    expect(spec).toContain("executionPath.itemIds.push(current)");
+    expect(spec).toContain("finally");
+  });
   it("applies a completed terminal branch step without requiring an API request or outgoing edge", () => {
     const suite: ScenarioSuite = { name: "Branch", scenarios: [{ id: "branch", title: "Branch", nodes: [1, 2, 3, 4, 5].map((id) => ({ id: String(id), title: String(id), kind: "screen" as const })), edges: [{ id: "1-2", source: "1", target: "2" }, { id: "2-3", source: "2", target: "3" }, { id: "3-4", source: "3", target: "4", branch: true }, { id: "3-5", source: "3", target: "5", branch: true }] }] };
     const results = playwrightStepNodeResults([{ scenarioId: "branch", records: [{ marker: { id: "5" }, status: "passed", startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z", durationMs: 1_000 }] }], suite, "run-branch");

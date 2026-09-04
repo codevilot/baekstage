@@ -6,6 +6,12 @@
 - `SuiteGalaxy`: graph canvas for custom compositions.
 - `defineScenario`: validates node and edge references.
 - `defineSuite`: validates all scenarios in a suite.
+- `definePart`: validates a reusable scenario Part discovered from `*.baekstage.part.*`.
+- `composeScenario`: namespaces, repeats, and connects imported Parts into one scenario graph.
+- `materializeScenario`: builds an editable graph while preserving the distinction between reusable Part references and scenario-local manual Nodes.
+- `ScenarioPartRunOptions`: per-instance `inputs` and `expectations` passed to generated Playwright Part calls; named Part `outcomes` remain separate from assertion failures.
+- `ScenarioExecutionPath`: optional generated-run evidence containing visited composition items, resolved nodes and edges, and returned Part outcomes.
+- `resolveExecutionPath`: resolves generated item-level path evidence against a materialized scenario graph.
 - `filterScenario`: filters nodes by project-defined facets.
 - `mergeResult`: immutably applies node execution results.
 - `normalizeExecution`: converts legacy Playwright execution to the common model.
@@ -63,6 +69,7 @@ type ScenarioViewerOptions = {
   traceViewerEndpoint?: string;
   catalogEndpoint?: string;
   apiRunnerEndpoint?: string;
+  editorEndpoint?: string;
 };
 ```
 

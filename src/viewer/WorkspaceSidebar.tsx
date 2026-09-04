@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { FiPlus } from "react-icons/fi";
 import type { ScenarioSuite } from "../core/types";
 import type { SuiteRunPolicy, SuiteRunProgress } from "../hooks/scenario/use-suite-run";
 
-type Props = { suite: ScenarioSuite; open: boolean; selectedId?: string | null; batch: { policy: SuiteRunPolicy; running: boolean; progress: SuiteRunProgress }; onPolicy: (policy: SuiteRunPolicy) => void; onRunAll: (policy: SuiteRunPolicy) => void; onStop: () => void; onToggle: () => void; onResize: (width: number) => void; onSelect: (id: string) => void };
+type Props = { suite: ScenarioSuite; open: boolean; selectedId?: string | null; batch: { policy: SuiteRunPolicy; running: boolean; progress: SuiteRunProgress }; onPolicy: (policy: SuiteRunPolicy) => void; onRunAll: (policy: SuiteRunPolicy) => void; onStop: () => void; onToggle: () => void; onResize: (width: number) => void; onSelect: (id: string) => void; onAdd?: () => void };
 
 const policies: Array<{ value: SuiteRunPolicy; title: string; description: string }> = [
   { value: "missing", title: "미실행만 실행", description: "기존 결과가 있는 Scenario는 건너뛰고, 아직 실행하지 않은 Scenario만 실행합니다." },
@@ -11,7 +12,7 @@ const policies: Array<{ value: SuiteRunPolicy; title: string; description: strin
   { value: "confirm", title: "기존 결과마다 확인", description: "기존 결과가 있는 Scenario마다 Run again 또는 건너뛰기를 확인합니다." },
 ];
 
-export function WorkspaceSidebar({ suite, open, selectedId, batch, onPolicy, onRunAll, onStop, onToggle, onResize, onSelect }: Props) {
+export function WorkspaceSidebar({ suite, open, selectedId, batch, onPolicy, onRunAll, onStop, onToggle, onResize, onSelect, onAdd }: Props) {
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [draftPolicy, setDraftPolicy] = useState<SuiteRunPolicy>(batch.policy);
   const openConfirmation = () => { setDraftPolicy(batch.policy); setConfirmationOpen(true); };
@@ -30,7 +31,7 @@ export function WorkspaceSidebar({ suite, open, selectedId, batch, onPolicy, onR
       {batch.running ? <button className="stop" onClick={onStop}>중단</button> : <button onClick={openConfirmation}>전체 실행</button>}
       {(batch.running || batch.progress.total > 0) && <div className="sidebar-progress" aria-live="polite"><progress value={batch.progress.completed} max={batch.progress.total || 1}/><span>{batch.progress.completed} / {batch.progress.total}{batch.progress.failed ? ` · 실패 ${batch.progress.failed}` : ""}{batch.progress.skipped ? ` · 건너뜀 ${batch.progress.skipped}` : ""}</span>{batch.running && batch.progress.current && <small title={batch.progress.current}>{batch.progress.current}</small>}</div>}
     </section>}
-    {open && <nav aria-label="Scenarios"><small>Scenarios · {suite.scenarios.length}</small>{suite.scenarios.map((scenario, index) => {
+    {open && <nav aria-label="Scenarios"><div className="sidebar-scenario-heading"><small>Scenarios · {suite.scenarios.length}</small>{onAdd && <button className="sidebar-scenario-add" onClick={onAdd} aria-label="시나리오 추가" title="새 시나리오"><FiPlus aria-hidden="true"/></button>}</div>{suite.scenarios.map((scenario, index) => {
       const failed = scenario.nodes.some((node) => node.status === "failed");
       const passed = !failed && scenario.nodes.some((node) => node.status === "passed");
       return <button className={selectedId === scenario.id ? "selected" : ""} onClick={() => onSelect(scenario.id)} aria-current={selectedId === scenario.id ? "page" : undefined} key={scenario.id}>

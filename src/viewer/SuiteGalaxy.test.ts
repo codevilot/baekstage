@@ -19,4 +19,10 @@ describe("SuiteGalaxy network", () => {
     expect(expanded.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["root", "scenario:payroll", "scenario:payroll:open", "scenario:payroll:close", "scenario:health"]));
     expect(expanded.nodes.some((node) => node.id === "scenario:health:status")).toBe(false);
   });
+
+  it("styles only the latest traversed edge as the successful path", () => {
+    const routed: ScenarioSuite = { name: "Run", scenarios: [{ ...suite.scenarios[0], latestRun: { runId: "run", status: "passed", finishedAt: "now", executionPath: { itemIds: [], nodeIds: ["open", "close"], edgeIds: ["open-close"], outcomes: {} } }, nodes: suite.scenarios[0].nodes.map((node) => ({ ...node, status: "passed" as const })) }] };
+    const expanded = makeNetwork(routed, 3, "all", [], "payroll");
+    expect(expanded.links.find((link) => typeof link.source !== "string" ? link.source.id.endsWith(":open") : link.source.endsWith(":open"))).toMatchObject({ executed: true, color: "#10b981", width: 2.2 });
+  });
 });

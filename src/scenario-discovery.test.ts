@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ScenarioGraph } from "./core/types";
-import { discoverSuite, findScenarioFiles, matchesScenarioDefinition } from "./scenario-discovery";
+import { discoverSuite, findPartFiles, findScenarioFiles, matchesPartDefinition, matchesScenarioDefinition } from "./scenario-discovery";
 
 const roots: string[] = [];
 const scenario = (id: string): ScenarioGraph => ({ id, title: id, nodes: [{ id: "start", title: "Start", kind: "fixture" }], edges: [] });
@@ -45,6 +45,32 @@ describe("scenario discovery", () => {
     expect(matchesScenarioDefinition("checkout/baekstage.scenario.ts")).toBe(true);
     expect(matchesScenarioDefinition("checkout/baekstage.spec.ts")).toBe(false);
     expect(matchesScenarioDefinition("month-close/scenario.ts", { include: ["**/scenario.ts"] })).toBe(true);
+    expect(matchesPartDefinition("parts/login.baekstage.part.ts")).toBe(true);
+  });
+
+  it("discovers Part files separately and records their executable source", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    await writeFile(path.join(root, "login.baekstage.part.ts"), "export default {}");
+    await writeFile(path.join(root, "checkout.baekstage.ts"), "export default {}");
+    expect((await findPartFiles(root)).map((file) => path.basename(file))).toEqual(["login.baekstage.part.ts"]);
+    const suite = await discoverSuite(root, undefined, async (file) => file.endsWith(".part.ts") ? ({ id: "login", title: "Login", nodes: [{ id: "form", title: "Form", kind: "screen" }], edges: [] }) : scenario("checkout"));
+    expect(suite.parts).toEqual([expect.objectContaining({ id: "login", source: path.join(root, "login.baekstage.part.ts") })]);
+  });
+
+  it("can start a Compose-only workspace from Parts", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    await writeFile(path.join(root, "login.baekstage.part.ts"), "export default {}");
+    const suite = await discoverSuite(root, undefined, async () => ({ id: "login", title: "Login", nodes: [{ id: "form", title: "Form", kind: "screen" }], edges: [] }));
+    expect(suite.scenarios).toEqual([]); expect(suite.parts).toHaveLength(1);
+  });
+
+  it("reapplies persisted UI edits without overwriting the authored definition", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "baekstage-discovery-")); roots.push(root);
+    await writeFile(path.join(root, "checkout.baekstage.ts"), "export default {}");
+    await mkdir(path.join(root, ".baekstage", "scenario-edits"), { recursive: true });
+    await writeFile(path.join(root, ".baekstage", "scenario-edits", "checkout.json"), JSON.stringify({ ...scenario("checkout"), title: "Edited checkout" }));
+    const suite = await discoverSuite(root, undefined, async () => scenario("checkout"));
+    expect(suite.scenarios[0].title).toBe("Edited checkout");
   });
 
   it("combines configured and discovered scenarios", async () => {

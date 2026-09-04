@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type RequestListener, type Server } from "node:http";
 import { evaluateApiAssertions } from "./assertions";
-import { normalizeExecution, mergeNodeResults } from "./execution";
+import { applyRunResult, normalizeExecution, mergeNodeResults, resolveExecutionPath } from "./execution";
 import { redactHeaders, redactUrl, redactValue } from "./security";
 import { loadOpenApiSources } from "../openapi/loader";
 import { apiNodeState, openApiOperationId, operationTestState, parseOpenApiDocument } from "../openapi/catalog";
@@ -23,6 +23,15 @@ describe("platform model", () => {
   it("normalizes legacy and explicit executions", () => { expect(normalizeExecution(graph)).toEqual({ adapter: "playwright", source: graph.source, grep: "retry" }); expect(normalizeExecution({ execution: { adapter: "api", request: { operationId: "retryJob" } } })).toMatchObject({ adapter: "api" }); });
   it("merges node results and generalized artifacts", () => { const merged = mergeNodeResults(graph, [{ runId: "run-1", origin: "api-replay", nodeId: "api", status: "passed", durationMs: 12, artifacts: [{ type: "response", label: "200", url: "", httpStatus: 200, runId: "run-1" }] }]); expect(merged.nodes[0]).toMatchObject({ status: "passed", metadata: { durationMs: 12 }, artifacts: [{ type: "response" }], latestResult: { runId: "run-1" } }); });
   it("deduplicates a run and separates latest result from history", () => { const first = { runId: "run-1", origin: "api-replay" as const, nodeId: "api", status: "passed" as const, artifacts: [{ type: "response" as const, label: "200", url: "", runId: "run-1" }] }; const repeated = mergeNodeResults(mergeNodeResults(graph, [first]), [first]); expect(repeated.nodes[0].artifacts).toHaveLength(1); expect(repeated.nodes[0].resultHistory).toHaveLength(1); const second = mergeNodeResults(repeated, [{ ...first, runId: "run-2", status: "failed" }]); expect(second.nodes[0].latestResult?.runId).toBe("run-2"); expect(second.nodes[0].resultHistory?.map((item) => item.runId)).toEqual(["run-1", "run-2"]); });
+
+  it("resolves and applies a generated execution path while marking unvisited branches skipped", () => {
+    const routed = { id: "routed", title: "Routed", composition: { items: [{ id: "part", type: "part" as const, partId: "login" }, { id: "ok-item", type: "node" as const, nodeId: "ok" }, { id: "no-item", type: "node" as const, nodeId: "no" }] }, nodes: [{ id: "part:start", title: "Start", kind: "action" as const, metadata: { compositionItemId: "part" } }, { id: "ok", title: "OK", kind: "outcome" as const }, { id: "no", title: "No", kind: "outcome" as const }], edges: [{ id: "ok-edge", source: "part:start", target: "ok", branch: true }, { id: "no-edge", source: "part:start", target: "no", branch: true }] };
+    const executionPath = resolveExecutionPath(routed, { itemIds: ["part", "ok-item"], outcomes: { part: "authenticated" } });
+    expect(executionPath).toMatchObject({ nodeIds: ["part:start", "ok"], edgeIds: ["ok-edge"], outcomes: { part: "authenticated" } });
+    const applied = applyRunResult(routed, { runId: "run", scenarioId: "routed", origin: "playwright", status: "passed", screenshots: [], output: "", startedAt: "now", finishedAt: "later", executionPath });
+    expect(applied.nodes.map((node) => node.status)).toEqual(["passed", "passed", "skipped"]);
+    expect(applied.latestRun?.executionPath?.edgeIds).toEqual(["ok-edge"]);
+  });
   it("evaluates API assertions individually", () => { const results = evaluateApiAssertions([{ type: "status", equals: 200 }, { type: "json-path", path: "$.status", equals: "queued" }, { type: "exists", path: "missing" }, { type: "duration", lessThanMs: 500 }, { type: "content-type", includes: "json" }], { status: 200, durationMs: 10, headers: { "content-type": "application/json" }, body: { status: "queued" } }); expect(results.map((item) => item.status)).toEqual(["passed", "passed", "failed", "passed", "passed"]); });
   it("redacts sensitive headers and URL query values", () => { expect(redactHeaders({ Authorization: "Bearer secret", Cookie: "sid=secret", Accept: "json" })).toEqual({ Authorization: "[REDACTED]", Cookie: "[REDACTED]", Accept: "json" }); expect(redactUrl("https://example.test/items?access_token=secret&q=safe")).not.toContain("access_token=secret"); });
   it("redacts configured keys across snake and camel case", () => { expect(redactValue({ access_token: "one", accessToken: "two", nested: { credential: "three" } }, ["accessToken", "credential"])).toEqual({ access_token: "[REDACTED]", accessToken: "[REDACTED]", nested: { credential: "[REDACTED]" } }); });

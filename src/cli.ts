@@ -10,7 +10,7 @@ import { baekstagePlugin } from "./vite/scenario-plugin";
 import { loadOpenApiSources } from "./openapi/loader";
 import { validateResponseEdges } from "./core/api-response";
 import { startConfiguredWebServer } from "./cli-web-server";
-import { discoverSuite, matchesScenarioDefinition } from "./scenario-discovery";
+import { discoverSuite, matchesPartDefinition, matchesScenarioDefinition } from "./scenario-discovery";
 
 type Args = { config?: string; host?: string; port?: number; open?: boolean; help?: boolean };
 type Cleanup = () => void | Promise<void>;
@@ -109,7 +109,7 @@ function openBrowser(url: string) {
 async function start() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { process.stdout.write(usage()); return; }
-  const cwd = process.cwd(); const file = configPath(cwd, args.config); const config = await loadConfig(cwd, file);
+  const cwd = process.cwd(); const file = configPath(cwd, args.config); const config = await loadConfig(cwd, file); const discoveryRoot = path.resolve(cwd, config.discovery?.root ?? ".");
   if (!config.suite) throw new Error("Baekstage could not create a scenario suite");
   const host = args.host ?? config.server?.host ?? "127.0.0.1"; const port = args.port ?? config.server?.port ?? 4173;
   const catalog = await loadOpenApiSources(cwd, config.sources?.openapi);
@@ -135,8 +135,8 @@ async function start() {
   try {
   root = await standaloneRoot(config, cwd); addCleanup(() => rm(root!, { recursive: true, force: true })); const plugins = [];
   let runtimePluginOptions: Parameters<typeof baekstagePlugin>[0] | undefined;
-  if (config.playwright?.projectRoot || config.sources?.openapi?.length || config.sources?.storybook?.length || config.schema?.sources?.length) { const results = typeof config.results === "string" ? { root: config.results } : config.results; const playwrightEnv = Object.fromEntries(Object.entries(config.playwright?.env ?? {}).map(([key, value]) => [key, appServer.port ? value.replaceAll("{port}", String(appServer.port)) : value])); runtimePluginOptions = { workspaceRoot: cwd, projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...runtimeEnv, ...playwrightEnv }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite, storybookSources: config.sources?.storybook, visual: config.visual, schemaSources: config.schema?.sources, schemaRecentCommits: config.schema?.recentCommits }; plugins.push(baekstagePlugin(runtimePluginOptions)); }
-  plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations", storybookEndpoint: "/api/storybook", reviewEndpoint: "/api/reviews", schemaEndpoint: "/api/schema" } })}` : null; } });
+  if (config.suite) { const results = typeof config.results === "string" ? { root: config.results } : config.results; const playwrightEnv = Object.fromEntries(Object.entries(config.playwright?.env ?? {}).map(([key, value]) => [key, appServer.port ? value.replaceAll("{port}", String(appServer.port)) : value])); runtimePluginOptions = { workspaceRoot: cwd, definitionRoot: discoveryRoot, projectRoot: config.playwright?.projectRoot ? path.resolve(cwd, config.playwright.projectRoot) : cwd, resultRoot: path.resolve(cwd, results?.root ?? ".baekstage/results"), maxRunsPerNode: results?.maxRunsPerNode, redactKeys: config.security?.redactKeys, command: config.playwright?.command, commandArgs: config.playwright?.commandArgs, env: { ...runtimeEnv, ...playwrightEnv }, catalog, apiSources: config.sources?.openapi?.map((source) => ({ id: source.id, baseUrl: source.baseUrl, environments: source.environments })), apiTimeoutMs: config.api?.timeoutMs, apiMaxResponseBytes: config.api?.maxResponseBytes, suite: config.suite, storybookSources: config.sources?.storybook, visual: config.visual, schemaSources: config.schema?.sources, schemaRecentCommits: config.schema?.recentCommits }; plugins.push(baekstagePlugin(runtimePluginOptions)); }
+  plugins.push({ name: "baekstage-config", resolveId(id: string) { return id === "virtual:baekstage-config" ? "\0virtual:baekstage-config" : null; }, load(id: string) { return id === "\0virtual:baekstage-config" ? `export default ${JSON.stringify({ suite: config.suite, catalog, options: { runnerEndpoint: "/api/scenarios", composerEndpoint: "/api/compositions", editorEndpoint: "/api/scenario-editor", traceViewerEndpoint: "/trace-viewer", catalogEndpoint: "/api/catalog", apiRunnerEndpoint: "/api/operations", storybookEndpoint: "/api/storybook", reviewEndpoint: "/api/reviews", schemaEndpoint: "/api/schema" } })}` : null; } });
   const server = await createServer({
     root,
     configFile: false,
@@ -149,7 +149,6 @@ async function start() {
     server: { host, port, strictPort: true },
   });
   addCleanup(() => server.close());
-  const discoveryRoot = path.resolve(cwd, config.discovery?.root ?? ".");
   server.watcher.add(discoveryRoot);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshQueue = Promise.resolve();
@@ -174,7 +173,7 @@ async function start() {
   };
   const onWatcherEvent = (_event: string, changedFile: string) => {
     const relative = path.relative(discoveryRoot, changedFile);
-    if (!relative.startsWith(`..${path.sep}`) && matchesScenarioDefinition(relative, config.discovery)) refreshSuite();
+    if (!relative.startsWith(`..${path.sep}`) && (matchesScenarioDefinition(relative, config.discovery) || matchesPartDefinition(relative))) refreshSuite();
   };
   server.watcher.on("all", onWatcherEvent);
   addCleanup(() => { clearTimeout(refreshTimer); server.watcher.off("all", onWatcherEvent); });

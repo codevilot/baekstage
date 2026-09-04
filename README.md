@@ -96,6 +96,79 @@ Use `port: "auto"` with `{port}` in the command and URL to avoid app-port confli
 the browser-facing Baekstage `server.port` can remain fixed.
 Use **Catalog** to search registered OpenAPI operations, inspect schemas, find linked
 scenarios, and execute linked API nodes through the protected local proxy.
+
+### Build scenarios from reusable Parts
+
+Put reusable browser actions in `*.baekstage.part.ts` (or a directory-level
+`baekstage.part.ts`). Baekstage discovers them and shows them as reusable components
+in the Map scenario editor.
+
+```ts
+// e2e/parts/login.baekstage.part.ts
+import { expect, type Page } from "@playwright/test";
+import { definePart, type ScenarioPartRunOptions } from "baekstage";
+
+export async function run(page: Page, options: ScenarioPartRunOptions) {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(String(options.inputs.email));
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading")).toHaveText(String(options.expectations.heading));
+  return { outcome: "authenticated" };
+}
+
+export default definePart({
+  id: "login",
+  title: "Sign in",
+  execute: "run",
+  inputs: [{ id: "email", title: "Email", type: "string", required: true }],
+  expectations: [{ id: "heading", title: "Expected heading", type: "string", defaultValue: "Home" }],
+  outcomes: [
+    { id: "authenticated", title: "Authenticated", verdict: "continue" },
+    { id: "denied", title: "Denied", verdict: "failed" },
+  ],
+  nodes: [
+    { id: "form", title: "Login form", kind: "screen" },
+    { id: "signed-in", title: "Signed in", kind: "outcome" },
+  ],
+  edges: [{ id: "submit", source: "form", target: "signed-in" }],
+});
+```
+
+Choose **＋ 시나리오 추가** on Map, or select an existing scenario and choose
+**편집**. Part instances can be inserted before or after the selected item,
+reordered, removed, replaced, or repeated. Baekstage runs every Part on the same
+Playwright `page`.
+
+Parts can also be composed in code with `composeScenario({ ..., parts: [
+{ part: login }, { part: drag, repeat: 3 }] })`.
+
+Playwright assertion failures and business outcomes are intentionally different:
+`expect()` decides whether the test is correct, while a named Part `outcome` such
+as `authenticated` or `denied` selects the next Part or manual Node. Inputs and
+expectations are stored per Part instance, so the same assertion code can test
+different values in different scenarios. The editor validates required values and
+route targets before saving, warns about cyclic routes, and runs a temporary spec
+before atomically replacing generated files. After a run, Map highlights the actual
+visited path and shows the returned outcomes; legacy `run(page)` Parts and hand-written
+specs continue to run without path metadata. Once a Part has outcome routes, returning
+an unmapped or missing outcome fails the test instead of producing a false pass.
+
+### Edit an existing scenario
+
+Select a scenario on **Map** and choose **편집**. The editor deliberately keeps two
+layers separate:
+
+- **Part instance** (purple): a reference to reusable Playwright code. It can be
+  added, replaced, reordered, repeated, or removed. Changing the Part definition
+  updates every scenario that references it.
+- **Manual Node** (gray): scenario-local, lower-level description and evidence
+  structure. Its id, title, kind, and description can be edited, but it does not
+  execute a Playwright function by itself.
+
+Edits to authored scenario files are stored as safe overlays under
+`.baekstage/scenario-edits/` so Baekstage does not rewrite hand-authored TypeScript.
+Generated scenarios remain editable and update their generated
+`baekstage.scenario.ts` and `scenario.spec.ts` files directly.
 Expected error cases such as `404` or `409` can pass when their configured response
 branch and assertions match. Branches without reproduction cases remain untested and
 are not inserted into the Scenario graph automatically.

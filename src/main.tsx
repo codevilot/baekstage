@@ -8,6 +8,9 @@ import "./viewer/status.css";
 import "./viewer/overview/overview-panel.css";
 import "./viewer/api/api.css";
 import "./viewer/visual/visual.css";
+import "./viewer/schema/schema.css";
+import "./viewer/compose/compose.css";
+import "./viewer/compose/editor.css";
 import openapi from "./examples/demo-openapi.json";
 import { parseOpenApiDocument } from "./openapi/catalog";
 

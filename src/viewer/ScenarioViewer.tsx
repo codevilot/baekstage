@@ -19,8 +19,9 @@ import { normalizeApiCases } from "../core/api-cases";
 import { useSuiteRun, type SuiteRunPolicy } from "../hooks/scenario/use-suite-run";
 import { VisualWorkspace } from "./visual/VisualWorkspace";
 import { SchemaWorkspace } from "./schema/SchemaWorkspace";
+import { ScenarioEditor } from "./compose/ScenarioEditor";
 
-type WorkspaceView = "map" | "scenario" | "catalog" | "review" | "schema";
+type WorkspaceView = "map" | "scenario" | "edit" | "catalog" | "review" | "schema";
 
 function scenarioName(title: string) {
   return title.replace(/^\d+\.\s*/, "");
@@ -69,13 +70,15 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [suiteRunPolicy, setSuiteRunPolicy] = useState<SuiteRunPolicy>("missing");
+  const [creatingScenario, setCreatingScenario] = useState(false);
   const selectedScenario = groupedSuite.scenarios.find((scenario) => scenario.id === selectedScenarioId);
+  const editableScenario = runtimeSuite.scenarios.find((scenario) => scenario.id === selectedScenarioId);
   const showScenarioSidebar = view === "map" || view === "scenario";
   const selectedGraphNode = selectedScenario?.nodes.find((node) => node.id === (selectedNodeId ?? mapNodeId));
   const relatedStoryIds = selectedGraphNode?.relatedStories ?? [];
   const selectedExecution = selectedScenario ? normalizeExecution(selectedScenario) : undefined;
   const run = useScenarioRun(selectedScenario?.id, selectedExecution?.adapter === "playwright" ? selectedExecution.source : selectedScenario?.source, selectedExecution?.adapter === "playwright" ? selectedExecution.grep : undefined, options?.runnerEndpoint);
-  useEffect(() => { if (!run.result?.nodeResults?.length) return; setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === run.result?.scenarioId ? applyRunResult(scenario, run.result) : scenario) })); }, [run.result]);
+  useEffect(() => { if (!run.result || (!run.result.nodeResults?.length && !run.result.executionPath)) return; setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((scenario) => scenario.id === run.result?.scenarioId ? applyRunResult(scenario, run.result!) : scenario) })); }, [run.result]);
   const screenshots = useMemo(() => {
     const scenarioIds = new Set([selectedScenario?.id, ...(selectedScenario?.nodes.flatMap((node) => typeof node.metadata?.scenarioId === "string" ? [node.metadata.scenarioId] : []) ?? [])]);
     const runtime = run.result?.screenshots.filter((item) => !item.scenarioId || scenarioIds.has(item.scenarioId)).map((item) => ({ ...item, type: "screenshot" as const })) ?? [];
@@ -126,8 +129,9 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
       batch={{ policy: suiteRunPolicy, running: suiteRun.running, progress: suiteRun.progress }}
       onPolicy={setSuiteRunPolicy} onRunAll={(policy) => void suiteRun.run(runtimeSuite.scenarios, policy)} onStop={suiteRun.stop}
       onToggle={() => setSidebarOpen((current) => !current)} onResize={setSidebarWidth}
+      onAdd={() => { setCreatingScenario(true); setSelectedScenarioId(null); setView("edit"); }}
       onSelect={(id) => { setView("map"); selectScenario(id); }}/>} {/* Map-only scenario explorer */}
-    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1></div><nav className="workspace-tabs" aria-label="Workspace views"><button className={view === "map" || view === "scenario" ? "active" : ""} onClick={() => setView("map")}>Map</button><button aria-label="Catalog" className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>API</button><button className={view === "schema" ? "active" : ""} onClick={() => setView("schema")}>Schema</button><button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>Review</button></nav></header>
+    <header><div><span className="eyebrow">Baekstage</span><h1>{groupedSuite.name}</h1></div><nav className="workspace-tabs" aria-label="Workspace views"><button className={view === "map" || view === "scenario" || view === "edit" ? "active" : ""} onClick={() => { setCreatingScenario(false); setView("map"); }}>Map</button><button aria-label="Catalog" className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>API</button><button className={view === "schema" ? "active" : ""} onClick={() => setView("schema")}>Schema</button><button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>Review</button></nav></header>
     {(view === "map" || (view === "scenario" && !selectedScenario)) && <div className="overview-workspace">
       <SuiteGalaxy suite={groupedSuite} selectedScenarioId={selectedScenarioId ?? undefined} selectedNodeId={mapNodeId ?? undefined} maxDetailDepth={maxDetailDepth} detailStatus={detailStatus} screenshots={screenshots} activeScreenshots={edgeScreenshots} onScreenshotsSelect={selectScreenshots} onSuiteSelect={() => { setSelectedScenarioId(null); setSuiteOpen(true); }} onScenarioSelect={selectScenario} onNodeSelect={inspectMapNode} onApiNodeSelect={openApiNode} onBackgroundClick={closePanels}/>
       <section className="galaxy-filters" aria-label="network graph filters"><div><span>Detail depth</span>{[0,1,2,3].map((depth) => <button className={maxDetailDepth === depth ? "active" : ""} onClick={() => setMaxDetailDepth(depth)} key={depth}>{depth === 0 ? "Main" : depth}</button>)}</div><div><span>Step status</span><button className={detailStatus === "all" ? "active" : ""} onClick={() => setDetailStatus("all")}>All</button><button className={detailStatus === "failed" ? "active" : ""} onClick={() => setDetailStatus("failed")}>Failed</button></div></section>
@@ -135,15 +139,31 @@ export function ScenarioViewer({ suite, catalog = { operations: [] }, options }:
       {!!edgeScreenshots.length && <EdgeScreenshotPanel screenshots={screenshots} outbound={edgeScreenshots} all={allScreenshotsOpen} traceViewerEndpoint={options?.traceViewerEndpoint} onBack={() => { setEdgeScreenshots([]); setAllScreenshotsOpen(false); }}/>} 
       {selectedScenario && mapNodeId && !edgeScreenshots.length && <ScenarioNodePanel scenario={selectedScenario} node={selectedScenario.nodes.find((node) => node.id === mapNodeId) ?? selectedScenario.nodes[0]} screenshots={screenshots} traceViewerEndpoint={options?.traceViewerEndpoint} onBack={() => setMapNodeId(null)} onSelect={(nodeId) => setMapNodeId(nodeId)} onRunApi={runSelectedMapApi}/>}
       {selectedScenario && !mapNodeId && !edgeScreenshots.length && <aside className="floating-scenario-card" aria-label={`${selectedScenario.title} details`}>
-        <div className="floating-scenario-heading"><span className="eyebrow">Selected scenario</span><button className="scenario-run-action" onClick={runSelectedScenario} disabled={activeRunning || (selectedExecution?.adapter === "playwright" ? !selectedExecution.source : !selectedApiOperation || !selectedApiCase)}>{activeRunning ? <><i/> Running</> : activeResult ? "Run again" : "Run"}</button></div><h2>{selectedScenario.title}</h2><p>{selectedScenario.description}</p>
+        <div className="floating-scenario-heading"><span className="eyebrow">Selected scenario</span><div className="scenario-heading-actions"><button className="scenario-edit-action" onClick={() => setView("edit")} disabled={!editableScenario}>편집</button><button className="scenario-run-action" onClick={runSelectedScenario} disabled={activeRunning || (selectedExecution?.adapter === "playwright" ? !selectedExecution.source : !selectedApiOperation || !selectedApiCase)}>{activeRunning ? <><i/> Running</> : activeResult ? "Run again" : "Run"}</button></div></div><h2>{selectedScenario.title}</h2><p>{selectedScenario.description}</p>
         <div className="floating-scenario-stats four"><span>{runCount || 1}<small>Playwright runs</small></span><span className={failedCount ? "failed" : ""}>{failedCount}<small>Failed steps</small></span><span>{selectedScenario.nodes.length}<small>Test steps</small></span><button disabled={!screenshots.length} onClick={() => { setAllScreenshotsOpen(true); setEdgeScreenshots(screenshots); }}>{screenshots.length}<small>Screenshots</small></button></div>
         {selectedExecution?.adapter === "playwright" ? <ScenarioRunPanel result={run.result} running={run.running} error={run.error} disabled={!selectedExecution.source} hideAction onRun={run.run}/> : <section className="scenario-run-panel" aria-live="polite"><div><strong>API execution</strong>{apiRun.result && <span className={apiRun.result.status}>{apiRun.result.status}</span>}</div>{apiRun.result?.nodeResults?.[0]?.api?.response ? <small>1 / {selectedScenario.nodes.length} nodes executed · HTTP {apiRun.result.nodeResults[0].api.response.status} {apiRun.result.nodeResults[0].api.response.statusText} · {apiRun.result.nodeResults[0].api.response.durationMs} ms</small> : apiRun.result ? <small>1 / {selectedScenario.nodes.length} nodes executed · {apiRun.result.nodeResults?.[0]?.failureKind ?? "No HTTP response"}</small> : <small>Run은 기본 API case 1개를 실행합니다. 나머지 node는 planned 상태로 유지됩니다.</small>}{apiRun.error && <p>실행 결과를 저장하지 못했습니다: {apiRun.error}</p>}{apiRun.result?.nodeResults?.[0]?.assertions?.some((item) => item.status === "failed") && <details open><summary>실패한 assertion</summary>{apiRun.result.nodeResults[0].assertions.filter((item) => item.status === "failed").map((item, index) => <p key={index}>{item.message}<br/>expected: {String(item.expected)} · actual: {String(item.actual)}</p>)}</details>}</section>}
+        {selectedScenario.latestRun?.executionPath && <section className="execution-path-summary"><header><strong>Last execution path</strong><span className={selectedScenario.latestRun.status}>{selectedScenario.latestRun.status}</span></header><p>{selectedScenario.latestRun.executionPath.itemIds.length} items · {selectedScenario.latestRun.executionPath.edgeIds.length} edges</p>{Object.entries(selectedScenario.latestRun.executionPath.outcomes).map(([itemId, outcome]) => <div key={itemId}><code>{itemId}</code><b>→ {outcome}</b></div>)}</section>}
         <NodeComposition scenario={selectedScenario} screenshots={screenshots} onScreenshots={selectScreenshots} onNodeSelect={(nodeId) => inspectMapNode(selectedScenario.id, nodeId)}/>
         {!!screenshots.length && <button className="scenario-all-screenshots" onClick={() => { setAllScreenshotsOpen(true); setEdgeScreenshots(screenshots); }}>전체 스크린샷 보기 <b>{screenshots.length}</b></button>}
         <footer><span>Source</span><code>{selectedScenario.source}</code></footer><small className="floating-card-hint">Canvas나 목록의 노드를 누르면 해당 노드의 screenshots를 확인합니다.</small>
       </aside>}
       {selectedOperation && <div className="overview-workbench"><ApiWorkbench operation={selectedOperation} scenario={linkedScenario} node={linkedNode} endpoint={options?.apiRunnerEndpoint} onResult={applyApiResult} onClose={() => setSelectedOperation(null)}/></div>}
     </div>}
+    {view === "edit" && creatingScenario && <ScenarioEditor
+      scenario={{ id: `scenario-${Date.now().toString(36)}`, title: "", nodes: [], edges: [] }}
+      creating
+      parts={runtimeSuite.parts ?? []}
+      endpoint={options?.editorEndpoint}
+      onClose={() => { setCreatingScenario(false); setView("map"); }}
+      onSaved={(scenario) => { setRuntimeSuite((current) => ({ ...current, scenarios: [...current.scenarios, scenario] })); setSelectedScenarioId(scenario.id); setCreatingScenario(false); }}/>
+    }
+    {view === "edit" && editableScenario && <ScenarioEditor
+      scenario={editableScenario}
+      parts={runtimeSuite.parts ?? []}
+      endpoint={options?.editorEndpoint}
+      onClose={() => { setCreatingScenario(false); setView("map"); }}
+      onSaved={(scenario) => setRuntimeSuite((current) => ({ ...current, scenarios: current.scenarios.map((item) => item.id === scenario.id ? scenario : item) }))}/>
+    }
     {view === "scenario" && selectedScenario && selectedScenario.nodes.length > 0 && <div className={`scenario-detail-workspace ${selectedOperation ? "with-workbench" : ""}`}><ScenarioDetail
       graph={selectedScenario} scenario={selectedScenario}
       screenshots={screenshots}
