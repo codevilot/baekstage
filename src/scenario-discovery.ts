@@ -43,13 +43,21 @@ function globExpression(pattern: string) {
   return new RegExp(`${expression}$`);
 }
 
+export function matchesScenarioDefinition(
+  relativePath: string,
+  options: ScenarioDiscoveryOptions = {},
+) {
+  const normalized = normalizePath(relativePath);
+  const includes = (options.include?.length ? options.include : defaultIncludes).map(globExpression);
+  return includes.some((pattern) => pattern.test(normalized));
+}
+
 function isPermissionError(error: unknown) {
   return error instanceof Error && "code" in error && ["EACCES", "EPERM"].includes(String(error.code));
 }
 
 export async function findScenarioFiles(root: string, options: ScenarioDiscoveryOptions = {}): Promise<string[]> {
   const found: string[] = [];
-  const includes = (options.include?.length ? options.include : defaultIncludes).map(globExpression);
   const excluded = new Set((options.exclude ?? []).map((item) => normalizePath(item).replace(/\/$/, "")));
   async function visit(directory: string): Promise<void> {
     let entries;
@@ -66,7 +74,7 @@ export async function findScenarioFiles(root: string, options: ScenarioDiscovery
       } else if (entry.isFile()) {
         const file = path.join(directory, entry.name);
         const relative = normalizePath(path.relative(root, file));
-        if (includes.some((pattern) => pattern.test(relative))) found.push(file);
+        if (matchesScenarioDefinition(relative, options)) found.push(file);
       }
     }));
   }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ScenarioGraph } from "./core/types";
-import { discoverSuite, findScenarioFiles } from "./scenario-discovery";
+import { discoverSuite, findScenarioFiles, matchesScenarioDefinition } from "./scenario-discovery";
 
 const roots: string[] = [];
 const scenario = (id: string): ScenarioGraph => ({ id, title: id, nodes: [{ id: "start", title: "Start", kind: "fixture" }], edges: [] });
@@ -39,6 +39,12 @@ describe("scenario discovery", () => {
       "checkout/checkout.scenario.ts",
       "month-close/scenario.ts",
     ]);
+  });
+
+  it("matches default and custom definition paths for CLI live discovery", () => {
+    expect(matchesScenarioDefinition("checkout/baekstage.scenario.ts")).toBe(true);
+    expect(matchesScenarioDefinition("checkout/baekstage.spec.ts")).toBe(false);
+    expect(matchesScenarioDefinition("month-close/scenario.ts", { include: ["**/scenario.ts"] })).toBe(true);
   });
 
   it("combines configured and discovered scenarios", async () => {

@@ -29,6 +29,13 @@ try {
   const script = await scriptResponse.text();
   if (!html.includes("Baekstage") || !script.includes("ScenarioViewer")) throw new Error("CLI did not serve the standalone viewer");
   if (script.includes("/@fs/") && script.includes("react/index.js")) throw new Error("CLI exposed React's CommonJS entry through /@fs");
+  await writeFile(path.join(root, "live.baekstage.mjs"), `export default ${JSON.stringify({ id: "live", title: "Live", nodes: [{ id: "start", title: "Start", kind: "fixture" }], edges: [] })}`);
+  const refreshDeadline = Date.now() + 10_000;
+  while (!output.includes("Scenario catalog refreshed (2 scenarios)") && child.exitCode === null && Date.now() < refreshDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  if (!output.includes("Scenario catalog refreshed (2 scenarios)")) throw new Error(`CLI did not refresh scenario discovery:\n${output}`);
+  const configResponse = await fetch(`http://127.0.0.1:${port}/@id/__x00__virtual:baekstage-config`);
+  const runtimeConfig = await configResponse.text();
+  if (!configResponse.ok || !runtimeConfig.includes('"id":"live"')) throw new Error("CLI did not expose the refreshed scenario catalog");
   process.stdout.write("Baekstage CLI smoke test passed\n");
 } finally {
   if (child.exitCode === null) { child.kill("SIGTERM"); await new Promise((resolve) => child.once("exit", resolve)); }

@@ -93,6 +93,10 @@ in the viewer process. `baekstage.spec.*` is deliberately not a definition patte
 
 `discovery.exclude` accepts directory names or paths relative to that root, and
 `ignorePermissionErrors` skips directories that cannot be read due to permissions.
+While the CLI is running, adding, editing, or removing a matching scenario definition
+automatically refreshes the browser and runner catalog on the same server port. Invalid
+intermediate edits are reported without replacing the last valid catalog; saving a valid
+definition retries the refresh.
 
 `envFile` loads dotenv-style values into managed services, the app server, and the
 Playwright child only; it does not mutate the Baekstage process environment. Services
